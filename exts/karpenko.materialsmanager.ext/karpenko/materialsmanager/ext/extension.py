@@ -1,12 +1,8 @@
-from ctypes import alignment
-from textwrap import wrap
 import carb
 import omni.ext
 import omni.kit.commands
-from omni.kit.window.filepicker import style
 import omni.ui as ui
 import omni.usd
-from omni.kit.material.library.thumbnail_loader import ThumbnailLoader
 # from omni.kit.property.material.scripts.material_utils import get_binding_from_prims
 from omni.kit.stage.copypaste.prim_serializer import (get_prim_as_text,
                                                       text_to_stage)
@@ -23,22 +19,24 @@ class MaterialManagerExtended(omni.ext.IExt):
         print("[karpenko.materialsmanager.ext] MaterialManagerExtended startup")
         self._usd_context = omni.usd.get_context()
         self._selection = self._usd_context.get_selection()
-        self._thumbnail_loader = ThumbnailLoader()
         self.ext_id = ext_id
         self.latest_selected_prim = None
         self.materials_frame_original = None
         self.materials_frame = None
+        self.main_frame = None
         self.ignore_change = False
         self.force_render = False
         self.current_ui = "default"
-        self.main_frame = None
         self.stage = self._usd_context.get_stage()
         self.allowed_commands = [
             "SelectPrimsCommand",
             "SelectPrims",
             "CreatePrimCommand",
             "DeletePrims",
-            "TransformPrimCommand"
+            "TransformPrimCommand",
+            "Undo",
+            "BindMaterial",
+            "BindMaterialCommand",
         ]
         self.collapsed = False
         
@@ -90,13 +88,19 @@ class MaterialManagerExtended(omni.ext.IExt):
         print("[karpenko.materialsmanager.ext] MaterialManagerExtended shutdown")
 
     def get_latest_version(self, looks):
-        latest_version = 0
+        latest_version = 1
+        versions = []
         for look in looks.GetChildren():
             look_path = look.GetPath()
             if look_path.name.startswith("Look_"):
                 version = int(look_path.name.split("_")[-1])
-                if version > latest_version:
-                    latest_version = version
+                versions.append(version)
+        versions.sort()
+        for version in versions:
+            if version != latest_version:
+                return latest_version
+            else:
+                latest_version += 1
         return latest_version
 
     def add_variant(self, looks, parent_prim):
@@ -124,7 +128,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                     select_new_prim=False
                 )
             # Generate a new name for the variant based on the quantity of previous ones
-            folder_name = f"Look_{self.get_latest_version(looks.GetPrimAtPath('MME')) + 1}"
+            folder_name = f"Look_{self.get_latest_version(looks.GetPrimAtPath('MME'))}"
             # Create a folder for the new variant
             omni.kit.commands.execute(
                 "CreatePrim",
@@ -149,48 +153,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 value=folder_name,
                 prev="",
             )
-
-            all_meshes = []
-            # Get all meshes
-            for mesh in parent_prim.GetChildren():
-                if mesh.GetTypeName() == "Mesh":
-                    all_meshes.append(mesh)
-            processed_materials = []
-            new_looks_folder = looks.GetPrimAtPath(f"MME/{folder_name}")
-            new_looks_folder_path = new_looks_folder.GetPath()
-            # loop through all meshes
-            for mesh_data in all_meshes:
-                # Get currently binded materials for the current mesh
-                current_material_prims = mesh_data.GetRelationship('material:binding').GetTargets()
-                # Loop through all binded materials paths
-                for original_material_prim_path in current_material_prims:
-                    # Get the material prim from path
-                    original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
-                    mat_name = original_material_prim.GetName()
-                    mat_path = original_material_prim.GetPath()
-                    # Check if was not already processed to avoid duplicates
-                    if original_material_prim_path not in processed_materials:
-                        # Copy material's prim as text
-                        usd_code = get_prim_as_text(self.stage, [mat_path, ])
-                        # put the clone material into the scene
-                        text_to_stage(self.stage, usd_code, new_looks_folder_path)
-                        # Bind the new material to the mesh
-                        omni.kit.commands.execute(
-                            'BindMaterial',
-                            material_path=f'{new_looks_folder_path}/{mat_name}',
-                            prim_path=mesh_data.GetPath(),
-                            strength=['weakerThanDescendants']
-                        )
-                        processed_materials.append(original_material_prim_path)
-                    else:
-                        # In case if we already processed this material, we need just to bind it to the current mesh
-                        omni.kit.commands.execute(
-                            'BindMaterial',
-                            material_path=f'{new_looks_folder_path}/{mat_name}',
-                            prim_path=mesh_data.GetPath(),
-                            strength=['weakerThanDescendants']
-                        )
-        self.render_variants_frame(looks, parent_prim)
+        self.enable_variant(folder_name, looks, parent_prim, add_new=True)
 
     def render_variants_frame(self, looks, parent_prim):
         """
@@ -214,11 +177,12 @@ class MaterialManagerExtended(omni.ext.IExt):
         if not self.materials_frame_original:
             self.materials_frame_original = ui.Frame(name="materials_frame_original", identifier="materials_frame_original")
         with self.materials_frame_original:
-            with ui.CollapsableFrame(f"Original{active_status}", height=ui.Pixel(10), collapsed=True):
+            with ui.CollapsableFrame(f"Original{active_status}", height=ui.Pixel(10), collapsed=is_variants_active):
                 with ui.VStack():
                     ui.Label("Your original, unmodified materials. Cannot be deleted.", name="variant_label", height=40)
-                    with ui.HStack():
-                        ui.Button("Enable", name="variant_button")
+                    if is_variants_active:
+                        with ui.HStack():
+                            ui.Button("Enable", name="variant_button", clicked_fn=lambda: self.enable_variant(None, looks, parent_prim))
         
         if not self.materials_frame:
             self.materials_frame = ui.Frame(name="materials_frame", identifier="materials_frame")
@@ -229,13 +193,18 @@ class MaterialManagerExtended(omni.ext.IExt):
                     if variant_prim.GetName() in str(mat_path):
                         is_active = True
                     active_status = ' (Active)' if is_active else ''
-                    with ui.CollapsableFrame(f"{variant_prim.GetName()}{active_status}", height=ui.Pixel(10), collapsed=True):
+                    with ui.CollapsableFrame(f"{variant_prim.GetName()}{active_status}", height=ui.Pixel(10), collapsed=not is_active):
                         with ui.VStack():
                             with ui.HStack():
                                 if not active_status:
-                                    ui.Button("Enable", name="variant_button")
+                                    prim_name = variant_prim.GetName()
+                                    print(prim_name)
+                                    ui.Button("Enable", name="variant_button", clicked_fn=lambda p_name=prim_name: self.enable_variant(p_name, looks, parent_prim))
+                                    prim_path = variant_prim.GetPath()
+                                    ui.Button("Delete", name="variant_button", clicked_fn=lambda p_path=prim_path: self.delete_variant(p_path, looks, parent_prim))
                                 else:
-                                    ui.Label("This variant is active. \nMake changes to the materials from above to edit this variant.", name="variant_label", height=40)
+                                    label_text = "This variant is active.\nMake changes to the active materials from above to edit this variant.\nAll changes will be saved automatically.\n"
+                                    ui.Label(label_text, name="variant_label", height=40)
                                     
         return self.materials_frame_original, self.materials_frame
 
@@ -254,7 +223,6 @@ class MaterialManagerExtended(omni.ext.IExt):
                 return
         else:
             self.force_render = False
-        # It's getting the selected prims in the scene.
         show_default_layout = True
 
         # Get the top-level prim (World)
@@ -295,12 +263,8 @@ class MaterialManagerExtended(omni.ext.IExt):
                     if prim.GetPrimAtPath("Looks") and prim != self.latest_selected_prim:
                         # Save the type of the rendered window
                         self.current_ui = "object"
-                        try:
-                            # Render new window for the selected prim
-                            self.render_objectlevel_layout(prim)
-                        except Exception as e:
-                            carb.log_warn(f"Failed to render object level layout: {e}")
-                            return
+                        # Render new window for the selected prim
+                        self.render_default_layout(prim)
                     show_default_layout = False
 
         if show_default_layout and self.current_ui != "default":
@@ -333,41 +297,6 @@ class MaterialManagerExtended(omni.ext.IExt):
         # return a parental prim object and its looks
         return prim, looks
 
-    def on_click(self, *args, **kwargs):
-        omni.kit.commands.execute(
-            "CreatePrim",
-            prim_type="Scope",
-            attributes={},
-            select_new_prim=False
-        )
-        # # Getting the current stage.
-        # stage = self._usd_context.get_stage()
-        # # It's getting the selected prims in the scene.
-        # paths = self._selection.get_selected_prim_paths()
-        # base_path = paths[0] if len(paths) > 0 else None
-        # base_path = Sdf.Path(base_path) if base_path else None
-
-        # if base_path:
-        #     parent_prim, looks = self._get_looks(stage, base_path)
-        #     if self.look_raw_data:
-        #         text_to_stage(stage, self.look_raw_data, parent_prim.GetPrimAtPath("Looks").GetPath())
-        #         self.look_raw_data = None
-        #     else:
-        #         self.look_raw_data = get_prim_as_text(stage, [looks[0].GetPath(), ])
-        # else:
-        #     carb.log_error("No selected prim")
-
-    def _build_collapsable_header(self, collapsed, title):
-        """Build a custom title of CollapsableFrame"""
-        with ui.HStack():
-            ui.Label(title, name="collapsable_name")
-
-            if collapsed:
-                image_name = "collapsable_opened"
-            else:
-                image_name = "collapsable_closed"
-            ui.Image(name=image_name, width=20, height=20)
-
     def get_all_materials_variants(self, looks_prim):
         """
         :param prim: The prim you want to get the variants from
@@ -381,13 +310,71 @@ class MaterialManagerExtended(omni.ext.IExt):
                     variants.append(child)
         return variants
 
-    def render_objectlevel_layout(self, prim):
-        if not prim:
-            return
+    def delete_variant(self, prim_path, looks, parent_prim):
+        omni.kit.commands.execute('DeletePrims', paths=[prim_path, ])
+        self.render_variants_frame(looks, parent_prim)
+
+    def enable_variant(self, folder_name, looks, parent_prim, add_new=False):
+        all_meshes = []
+        # Get all meshes
+        for mesh in parent_prim.GetChildren():
+            if mesh.GetTypeName() == "Mesh":
+                all_meshes.append(mesh)
+        processed_materials = []
+        if folder_name is None:
+            new_looks_folder = looks
+        else:
+            new_looks_folder = looks.GetPrimAtPath(f"MME/{folder_name}")
+        new_looks_folder_path = new_looks_folder.GetPath()
+        # loop through all meshes
+        for mesh_data in all_meshes:
+            # Get currently binded materials for the current mesh
+            current_material_prims = mesh_data.GetRelationship('material:binding').GetTargets()
+            # Loop through all binded materials paths
+            for original_material_prim_path in current_material_prims:
+                # Get the material prim from path
+                original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
+                mat_name = original_material_prim.GetName()
+                mat_path = original_material_prim.GetPath()
+                print(mat_name)
+                # Check if was not already processed to avoid duplicates
+                if original_material_prim_path not in processed_materials:
+                    if add_new:
+                        # Copy material's prim as text
+                        usd_code = get_prim_as_text(self.stage, [mat_path, ])
+                        # put the clone material into the scene
+                        text_to_stage(self.stage, usd_code, new_looks_folder_path)
+                    # Bind the new material to the mesh
+                    omni.kit.commands.execute(
+                        'BindMaterial',
+                        material_path=f'{new_looks_folder_path}/{mat_name}',
+                        prim_path=mesh_data.GetPath(),
+                        strength=['weakerThanDescendants']
+                    )
+                    processed_materials.append(original_material_prim_path)
+                else:
+                    # In case if we already processed this material, we need just to bind it to the current mesh
+                    omni.kit.commands.execute(
+                        'BindMaterial',
+                        material_path=f'{new_looks_folder_path}/{mat_name}',
+                        prim_path=mesh_data.GetPath(),
+                        strength=['weakerThanDescendants']
+                    )
+        self.render_variants_frame(looks, parent_prim)
+
+    def select_material(self, associated_mesh):
+        mesh = self.stage.GetPrimAtPath(associated_mesh)
+        if mesh:
+            current_material_prims = mesh.GetRelationship('material:binding').GetTargets()
+            if current_material_prims:
+                
+                omni.usd.get_context().get_selection().set_prim_path_selected(
+                    str(current_material_prims[0]), True, True, True, True
+                )
+
+    def render_objectlevel_frame(self, prim):
         looks = prim.GetPrimAtPath("Looks")
-        # Getting the current stage.
         
-        self._window = ui.Window("Material Manager", width=300, height=400)
         all_meshes = []
         all_mat_paths = []
         # Get all meshes
@@ -407,12 +394,14 @@ class MaterialManagerExtended(omni.ext.IExt):
             self.materials_frame_original = None
 
         processed_materials = []
-        with self._window.frame:
+        if not self.main_frame:
+            self.main_frame = ui.Frame(name="materials_frame", identifier="materials_frame")
+        with self.main_frame:
             with ui.VStack(style=self._style):
                 ui.Label(prim.GetName(), name="main_label", height=40)
                 ui.Spacer(height=10)
                 with ui.VStack(height=250):
-                    with ui.CollapsableFrame("Active materials", height=ui.Pixel(10)):
+                    with ui.CollapsableFrame("Active materials", height=ui.Pixel(10), collapsed=True):
                         with ui.VGrid(column_count=materials_column_count):
                             material_counter = 1
                             # loop through all meshes
@@ -444,7 +433,12 @@ class MaterialManagerExtended(omni.ext.IExt):
                                                 elided_text=True
                                             )
                                             
-                                            ui.Button("Edit", name="variant_button", width=ui.Percent(30))
+                                            ui.Button(
+                                                "Select",
+                                                name="variant_button",
+                                                width=ui.Percent(30),
+                                                clicked_fn=lambda: self.select_material(mesh_data["mesh"].GetPath()),
+                                            )
                                         else:
                                             ui.Label(
                                                 f"{material_counter}",
@@ -463,7 +457,12 @@ class MaterialManagerExtended(omni.ext.IExt):
                                                 elided_text=True
                                             )
                                             
-                                            ui.Button("Edit", name="variant_button", width=ui.Percent(30))
+                                            ui.Button(
+                                                "Select",
+                                                name="variant_button",
+                                                width=ui.Percent(30),
+                                                clicked_fn=lambda: self.select_material(mesh_data["mesh"].GetPath()),
+                                            )
                                     material_counter += 1
                                     processed_materials.append(original_material_prim_path)
                             ui.Spacer(height=20)
@@ -475,13 +474,30 @@ class MaterialManagerExtended(omni.ext.IExt):
                     "Add new variant",
                     height=20,
                     clicked_fn=lambda: self.add_variant(looks, prim),
-                    alignment=ui.Alignment.CENTER_BOTTOM
+                    alignment=ui.Alignment.CENTER_BOTTOM,
+                    tooltip="Create a new variant, based on the current look",
                 )
 
-    def render_default_layout(self, *args, **kwargs):
-        self._window = ui.Window("Material Manager", width=300, height=300)
-        with self._window.frame:
+    def render_scenelevel_frame(self):
+        if not self.main_frame:
+            self.main_frame = ui.Frame(name="materials_frame", identifier="materials_frame")
+        with self.main_frame:
             with ui.VStack():
                 ui.Label("Some Label")
 
-                ui.Button("Click Me", clicked_fn=self.on_click)
+                ui.Button("Click Me")
+            
+    def render_default_layout(self, prim=None):
+        if self.main_frame:
+            self.main_frame = None
+        if self.materials_frame:
+            self.materials_frame = None
+        if self.materials_frame_original:
+            self.materials_frame_original = None
+        self._window = ui.Window("Material Manager", width=300, height=300)
+        with self._window.frame:
+            if not prim:
+                self.render_scenelevel_frame()
+            else:
+                self.render_objectlevel_frame(prim)
+            
