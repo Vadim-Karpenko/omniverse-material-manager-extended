@@ -62,6 +62,12 @@ class MaterialManagerExtended(omni.ext.IExt):
                 "margin_width": 10,
                 "font_size": 32,
             },
+            "Label::main_hint": {
+                "alignment": ui.Alignment.CENTER,
+                "margin_height": 1,
+                "margin_width": 10,
+                "font_size": 16,
+            },
             "Label::material_name": {
                 "alignment": ui.Alignment.CENTER_TOP,
                 "margin_height": 1,
@@ -219,14 +225,27 @@ class MaterialManagerExtended(omni.ext.IExt):
         return result
 
     def bind_materials(self, all_materials, variant_folder_path):
+        if variant_folder_path:
+            variant_materials_prim = self.stage.GetPrimAtPath(variant_folder_path)
         for mat_data in all_materials:
-            # Bind the new material to the mesh
-            omni.kit.commands.execute(
-                'BindMaterial',
-                material_path=mat_data["path"],
-                prim_path=mat_data["mesh"],
-                strength=['weakerThanDescendants']
-            )
+            if variant_folder_path and variant_materials_prim:
+                for var_mat in variant_materials_prim.GetChildren():
+                    if var_mat.GetName() == str(mat_data["path"]).split("/")[-1]:
+                        omni.kit.commands.execute(
+                            "BindMaterial",
+                            prim_path=mat_data["mesh"],
+                            material_path=var_mat.GetPath(),
+                            strength=['weakerThanDescendants']
+                        )
+                        break
+            else:
+                # Bind the new material to the mesh
+                omni.kit.commands.execute(
+                    'BindMaterial',
+                    material_path=mat_data["path"],
+                    prim_path=mat_data["mesh"],
+                    strength=['weakerThanDescendants']
+                )
 
     def deactivate_all_variants(self, looks):
         """
@@ -235,21 +254,27 @@ class MaterialManagerExtended(omni.ext.IExt):
         looks_path = looks.GetPath()
         mme_folder = looks.GetPrimAtPath("MME")
         if mme_folder:
-            omni.kit.commands.execute(
-                'ChangeProperty',
-                prop_path=Sdf.Path(f"{looks_path}/MME.MMEisActive"),
-                value=False,
-                prev="",
-            )
+            mme_folder_prop_path = Sdf.Path(f"{looks_path}/MME.MMEisActive")
+            mme_is_active = self.stage.GetAttributeAtPath(mme_folder_prop_path).Get()
+            if mme_is_active:
+                omni.kit.commands.execute(
+                    'ChangeProperty',
+                    prop_path=mme_folder_prop_path,
+                    value=False,
+                    prev=True,
+                )
             for look in mme_folder.GetChildren():
                 p_type = look.GetTypeName()
                 if p_type == "Scope":
-                    omni.kit.commands.execute(
-                        'ChangeProperty',
-                        prop_path=Sdf.Path(f"{looks_path}/MME/{look.GetName()}.MMEisActive"),
-                        value=False,
-                        prev="",
-                    )
+                    look_is_active_path = Sdf.Path(f"{looks_path}/MME/{look.GetName()}.MMEisActive")
+                    look_is_active = self.stage.GetAttributeAtPath(look_is_active_path).Get()
+                    if look_is_active:
+                        omni.kit.commands.execute(
+                            'ChangeProperty',
+                            prop_path=look_is_active_path,
+                            value=False,
+                            prev=True,
+                        )
 
     def get_parent_from_mesh(self, mesh_prim):
         """
@@ -309,7 +334,6 @@ class MaterialManagerExtended(omni.ext.IExt):
         if looks:
             looks_path = looks.GetPath()
             mme_folder, is_original_active = self.check_if_original_active(looks.GetPrimAtPath("MME"))
-            print(is_original_active)
             if is_original_active:
                 folder_name = None
             else:
@@ -318,14 +342,29 @@ class MaterialManagerExtended(omni.ext.IExt):
                     return
                 folder_name = active_folder.GetName()
             mesh_data = self.get_mesh_data(looks_path, folder_name)
+            mesh_data_to_update = []
             if mesh_data:
                 for mat_data in mesh_data:
                     if mat_data["mesh"] == prim_path and mat_data["path"] != new_material_path:
                         carb.log_warn("Material changes detected. Updating material data...")
                         mat_data["path"] = new_material_path
+                        mesh_data_to_update.append(mat_data)
                         break
                 else:
                     return
+                
+                if not is_original_active and folder_name:
+                    active_folder_path = active_folder.GetPath()
+                    # Copy material's prim as text
+                    usd_code = get_prim_as_text(self.stage, [Sdf.Path(i["path"]) for i in mesh_data])
+                    omni.kit.commands.execute(
+                        'DeletePrims',
+                        paths=[i.GetPath() for i in active_folder.GetChildren()]
+                    )
+                    # put the clone material into the scene
+                    text_to_stage(self.stage, usd_code, active_folder_path)
+                    self.ignore_change = True
+                    self.bind_materials(mesh_data_to_update, active_folder_path)
                 self.set_mesh_data(mesh_data, looks_path, folder_name)
 
     def on_change(self):
@@ -507,7 +546,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 'ChangeProperty',
                 prop_path=is_active_attr_path,
                 value=True,
-                prev="",
+                prev=False,
             )
         self.bind_materials(all_materials, None if folder_name is None else new_looks_folder_path)
         self.render_variants_frame(looks, parent_prim)
@@ -566,7 +605,6 @@ class MaterialManagerExtended(omni.ext.IExt):
                     prim_path = variant_prim.GetPath()
                     delete_variant_fn=lambda p_path=prim_path: self.delete_variant(p_path, looks, parent_prim)
 
-
                     is_active_attr = variant_prim.GetAttribute("MMEisActive")
                     if is_active_attr:
                         is_active = is_active_attr.Get()
@@ -615,73 +653,71 @@ class MaterialManagerExtended(omni.ext.IExt):
             with ui.VStack(style=self._style):
                 ui.Label(prim.GetName(), name="main_label", height=40)
                 ui.Spacer(height=10)
-                with ui.CollapsableFrame("Active materials", height=ui.Pixel(10), collapsed=True):
-                    with ui.VGrid(column_count=materials_column_count):
-                        material_counter = 1
-                        # loop through all meshes
-                        for mesh_data in all_meshes:
-                            sl_mat_fn = lambda mesh_path=mesh_data["mesh"].GetPath(): self.select_material(mesh_path)
-                            # Get currently binded materials for the current mesh
-                            current_material_prims = mesh_data["material_paths"]
-                            # Loop through all binded materials paths
-                            for original_material_prim_path in current_material_prims:
-                                if original_material_prim_path in processed_materials:
-                                    continue
-                                # Get the material prim from path
-                                original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
-                                with ui.HStack():
-                                    if materials_column_count == 1:
-                                        ui.Label(
-                                            f"{material_counter}",
-                                            name="material_counter",
-                                            width=40,
-                                        )
-                                        ui.Image(
-                                            self.material_icon,
-                                            height=24,
-                                            width=24,
-                                        )
-                                        ui.Spacer(height=10, width=10)
-                                        ui.Label(
-                                            original_material_prim.GetName(),
-                                            
-                                            elided_text=True
-                                        )
+                ui.Label("Active materials", name="secondary_label", height=40)
+                with ui.VGrid(column_count=materials_column_count):
+                    material_counter = 1
+                    # loop through all meshes
+                    for mesh_data in all_meshes:
+                        sl_mat_fn = lambda mesh_path=mesh_data["mesh"].GetPath(): self.select_material(mesh_path)
+                        # Get currently binded materials for the current mesh
+                        current_material_prims = mesh_data["material_paths"]
+                        # Loop through all binded materials paths
+                        for original_material_prim_path in current_material_prims:
+                            if original_material_prim_path in processed_materials:
+                                continue
+                            # Get the material prim from path
+                            original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
+                            with ui.HStack():
+                                if materials_column_count == 1:
+                                    ui.Label(
+                                        f"{material_counter}",
+                                        name="material_counter",
+                                        width=40,
+                                    )
+                                    ui.Image(
+                                        self.material_icon,
+                                        height=24,
+                                        width=24,
+                                    )
+                                    ui.Spacer(height=10, width=10)
+                                    ui.Label(
+                                        original_material_prim.GetName(),
                                         
-                                        ui.Button(
-                                            "Select",
-                                            name="variant_button",
-                                            width=ui.Percent(30),
-                                            clicked_fn=sl_mat_fn,
-                                        )
-                                    else:
-                                        ui.Label(
-                                            f"{material_counter}",
-                                            name="material_counter",
-                                            width=50,
-                                        )
-                                        ui.Image(
-                                            self.material_icon,
-                                            height=24,
-                                            width=24,
-                                        )
+                                        elided_text=True
+                                    )
+                                    
+                                    ui.Button(
+                                        "Select",
+                                        name="variant_button",
+                                        width=ui.Percent(30),
+                                        clicked_fn=sl_mat_fn,
+                                    )
+                                else:
+                                    ui.Label(
+                                        f"{material_counter}",
+                                        name="material_counter",
+                                        width=50,
+                                    )
+                                    ui.Image(
+                                        self.material_icon,
+                                        height=24,
+                                        width=24,
+                                    )
+                                    
+                                    ui.Label(
+                                        original_material_prim.GetName(),
                                         
-                                        ui.Label(
-                                            original_material_prim.GetName(),
-                                            
-                                            elided_text=True
-                                        )
-                                        
-                                        ui.Button(
-                                            "Select",
-                                            name="variant_button",
-                                            width=ui.Percent(30),
-                                            clicked_fn=sl_mat_fn,
-                                        )
-                                material_counter += 1
-                                processed_materials.append(original_material_prim_path)
-                        ui.Spacer(height=20)
-                ui.Spacer(height=20)
+                                        elided_text=True
+                                    )
+                                    
+                                    ui.Button(
+                                        "Select",
+                                        name="variant_button",
+                                        width=ui.Percent(30),
+                                        clicked_fn=sl_mat_fn,
+                                    )
+                            material_counter += 1
+                            processed_materials.append(original_material_prim_path)
                 ui.Label("All variants", name="secondary_label", height=40)
                 self.render_variants_frame(looks, prim)
                 ui.Spacer(height=20)
@@ -697,10 +733,8 @@ class MaterialManagerExtended(omni.ext.IExt):
         if not self.main_frame:
             self.main_frame = ui.Frame(name="materials_frame", identifier="materials_frame")
         with self.main_frame:
-            with ui.VStack():
-                ui.Label("Some Label")
-
-                ui.Button("Click Me")
+            with ui.VStack(style=self._style):
+                ui.Label("Please select any object to see its materials", name="main_hint")
 
     def render_default_layout(self, prim=None):
         if self.main_frame:
