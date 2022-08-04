@@ -1,5 +1,6 @@
 import base64
 import json
+from os import access
 
 import carb
 import omni.ext
@@ -28,7 +29,6 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.materials_frame = None
         self.main_frame = None
         self.ignore_change = False
-        self.force_render = False
         self.current_ui = "default"
         self.stage = self._usd_context.get_stage()
         self.allowed_commands = [
@@ -120,6 +120,8 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.ignore_change = True
         # group all commands so it can be undone at once
         with omni.kit.undo.group():
+            all_meshes = self.get_meshes_from_prim(parent_prim)
+            all_materials = self.get_data_from_meshes(all_meshes)
             # Check if folder (prim, Scope) MME already exist
             if not looks.GetPrimAtPath("MME"):
                 # Create a folder called MME under the looks folder, it will contain all the materials for all variants
@@ -130,6 +132,19 @@ class MaterialManagerExtended(omni.ext.IExt):
                     attributes={},
                     select_new_prim=False
                 )
+
+                is_active_attr_path = Sdf.Path(f"{looks_path}/MME.MMEisActive")
+
+                omni.kit.commands.execute(
+                    'CreateUsdAttributeOnPath',
+                    attr_path=is_active_attr_path,
+                    attr_type=Sdf.ValueTypeNames.Bool,
+                    custom=True,
+                    attr_value=False,
+                    variability=Sdf.VariabilityVarying
+                )
+                self.set_mesh_data(all_materials, looks_path, None)
+                    
             # Generate a new name for the variant based on the quantity of previous ones
             folder_name = f"Look_{self.get_latest_version(looks.GetPrimAtPath('MME'))}"
             # Create a folder for the new variant
@@ -140,7 +155,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 attributes={},
                 select_new_prim=False
             )
-            
+
             is_active_attr_path = Sdf.Path(f"{looks_path}/MME/{folder_name}.MMEisActive")
 
             omni.kit.commands.execute(
@@ -151,78 +166,67 @@ class MaterialManagerExtended(omni.ext.IExt):
                 variability=Sdf.VariabilityVarying
             )
 
-            all_meshes = []
-            # Get all meshes
-            for mesh in parent_prim.GetChildren():
-                if mesh.GetTypeName() == "Mesh":
-                    all_meshes.append(mesh)
-            
             if folder_name is None:
                 new_looks_folder = looks
             else:
                 new_looks_folder = looks.GetPrimAtPath(f"MME/{folder_name}")
             new_looks_folder_path = new_looks_folder.GetPath()
-            processed_materials = []
-            all_materials = []
-            # loop through all meshes
-            for mesh_data in all_meshes:
-                # Get currently binded materials for the current mesh
-                current_material_prims = mesh_data.GetRelationship('material:binding').GetTargets()
-                
-                # Loop through all binded materials paths
-                for original_material_prim_path in current_material_prims:
-                    original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
-                    # Check if was not already processed to avoid duplicates
-                    if original_material_prim_path not in processed_materials:
-                        all_materials.append({
-                            "name": original_material_prim.GetName(),
-                            "path": original_material_prim_path,
-                            "mesh": mesh_data.GetPath(),
-                        })
-                        processed_materials.append(original_material_prim_path)
-                    
             # Copy material's prim as text
             usd_code = get_prim_as_text(self.stage, [mat_data["path"] for mat_data in all_materials])
             # put the clone material into the scene
             text_to_stage(self.stage, usd_code, new_looks_folder_path)
 
-            for mat_data in all_materials:
-                mat_name = mat_data["name"]
-                
-                # Bind the new material to the mesh
-                omni.kit.commands.execute(
-                    'BindMaterial',
-                    material_path=f'{new_looks_folder_path}/{mat_name}',
-                    prim_path=mat_data["mesh"],
-                    strength=['weakerThanDescendants']
-                )
-
-            # Convert every Path to string in all_materials to be able to pass it into JSON
-            all_materials = [{
-                "name": mat_data["name"],
-                "path": str(mat_data["path"]),
-                "mesh": str(mat_data["mesh"]),
-            } for mat_data in all_materials]
-
-            data_attr_path = Sdf.Path(f"{looks_path}/MME/{folder_name}.MMEMeshData")
-            omni.kit.commands.execute(
-                'CreateUsdAttributeOnPath',
-                attr_path=data_attr_path,
-                attr_type=Sdf.ValueTypeNames.StringArray,
-                custom=True,
-                variability=Sdf.VariabilityVarying,
-                attr_value=[base64.b64encode(json.dumps(i).encode()) for i in all_materials],
-            )
-
+            self.bind_materials(all_materials, new_looks_folder_path)
+            self.set_mesh_data(all_materials, looks_path, folder_name)
             self.deactivate_all_variants(looks)
+            # Set current variant as active
             omni.kit.commands.execute(
                 'ChangeProperty',
                 prop_path=is_active_attr_path,
                 value=True,
                 prev="",
             )
-                        
+
         self.render_variants_frame(looks, parent_prim)
+
+    def get_meshes_from_prim(self, parent_prim):
+        all_meshes = []
+        # Get all meshes
+        for mesh in parent_prim.GetChildren():
+            if mesh.GetTypeName() == "Mesh":
+                all_meshes.append(mesh)
+        return all_meshes
+
+    def get_data_from_meshes(self, all_meshes):
+        processed_materials = []
+        result = []
+        # loop through all meshes
+        for mesh_data in all_meshes:
+            # Get currently binded materials for the current mesh
+            current_material_prims = mesh_data.GetRelationship('material:binding').GetTargets()
+            
+            # Loop through all binded materials paths
+            for original_material_prim_path in current_material_prims:
+                original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
+                # Check if was not already processed to avoid duplicates
+                if original_material_prim_path not in processed_materials:
+                    result.append({
+                        "name": original_material_prim.GetName(),
+                        "path": original_material_prim_path,
+                        "mesh": mesh_data.GetPath(),
+                    })
+                    processed_materials.append(original_material_prim_path)
+        return result
+
+    def bind_materials(self, all_materials, variant_folder_path):
+        for mat_data in all_materials:
+            # Bind the new material to the mesh
+            omni.kit.commands.execute(
+                'BindMaterial',
+                material_path=mat_data["path"],
+                prim_path=mat_data["mesh"],
+                strength=['weakerThanDescendants']
+            )
 
     def deactivate_all_variants(self, looks):
         """
@@ -231,6 +235,12 @@ class MaterialManagerExtended(omni.ext.IExt):
         looks_path = looks.GetPath()
         mme_folder = looks.GetPrimAtPath("MME")
         if mme_folder:
+            omni.kit.commands.execute(
+                'ChangeProperty',
+                prop_path=Sdf.Path(f"{looks_path}/MME.MMEisActive"),
+                value=False,
+                prev="",
+            )
             for look in mme_folder.GetChildren():
                 p_type = look.GetTypeName()
                 if p_type == "Scope":
@@ -241,22 +251,103 @@ class MaterialManagerExtended(omni.ext.IExt):
                         prev="",
                     )
 
-    def on_change(self):
-        if not self.force_render:
-            # Get history of commands
-            current_history = omni.kit.undo.get_history().values()
-            # Get the latest one
-            latest_action = next(reversed(current_history))
+    def get_parent_from_mesh(self, mesh_prim):
+        """
+        Get the parent prim of the mesh
+        """
+        parent_prim = mesh_prim.GetParent()
+        while parent_prim.GetTypeName() != "Xform":
+            parent_prim = parent_prim.GetParent()
+        return parent_prim
 
-            if latest_action.name not in self.allowed_commands:
-                return
-            # To skip the changes made by the addon
-            if self.ignore_change:
-                self.ignore_change = False
-                return
-        else:
-            self.force_render = False
+    def get_looks_folder(self, parent_prim):
+        """
+        Get the looks folder
+        """
+        looks_folder = parent_prim.GetPrimAtPath("Looks")
+        return looks_folder if looks_folder else None
+
+    def check_if_original_active(self, mme_folder):
+        if mme_folder:
+            mme_is_active_attr = mme_folder.GetAttribute("MMEisActive")
+            if mme_is_active_attr and mme_is_active_attr.Get():
+                return mme_folder, True
+        return mme_folder, False
+
+    def get_currently_active_folder(self, looks):
+        """
+        Get the currently active folder
+        """
+        mme_folder = looks.GetPrimAtPath("MME")
+        if mme_folder:
+            if mme_folder.GetTypeName() == "Scope":
+                for look in mme_folder.GetChildren():
+                    if look.GetTypeName() == "Scope":
+                        is_active_attr = look.GetAttribute("MMEisActive")
+                        if is_active_attr and is_active_attr.Get():
+                            return look
+        return None
+    
+    def update_material_data(self, latest_action):
+        """
+        Updates the material data with the new data from the latest action
+        """
+        if "prim_path" not in latest_action.kwargs or "material_path" not in latest_action.kwargs:
+            return
+        prim_path = latest_action.kwargs["prim_path"]
+        if not prim_path:
+            return
+        if type(prim_path) == list:
+            prim_path = prim_path[0]
+        new_material_path = latest_action.kwargs["material_path"]
+        if not new_material_path:
+            return
+        if type(new_material_path) == list:
+            new_material_path = new_material_path[0]
+        parent_mesh = self.get_parent_from_mesh(self.stage.GetPrimAtPath(prim_path))
+        looks = self.get_looks_folder(parent_mesh)
+        if looks:
+            looks_path = looks.GetPath()
+            mme_folder, is_original_active = self.check_if_original_active(looks.GetPrimAtPath("MME"))
+            print(is_original_active)
+            if is_original_active:
+                folder_name = None
+            else:
+                active_folder = self.get_currently_active_folder(looks)
+                if not active_folder:
+                    return
+                folder_name = active_folder.GetName()
+            mesh_data = self.get_mesh_data(looks_path, folder_name)
+            if mesh_data:
+                for mat_data in mesh_data:
+                    if mat_data["mesh"] == prim_path and mat_data["path"] != new_material_path:
+                        carb.log_warn("Material changes detected. Updating material data...")
+                        mat_data["path"] = new_material_path
+                        break
+                else:
+                    return
+                self.set_mesh_data(mesh_data, looks_path, folder_name)
+
+    def on_change(self):
+        # Get history of commands
+        current_history = reversed(omni.kit.undo.get_history().values())
+        # Get the latest one
+        latest_action = next(current_history)
+        
+        if latest_action.name == "ChangePrimVarCommand" and latest_action.level == 1:
+            latest_action = next(current_history)
+        
+        if latest_action.name not in self.allowed_commands:
+            return
+        # To skip the changes made by the addon
+        if self.ignore_change:
+            self.ignore_change = False
+            return
         show_default_layout = True
+        
+        if latest_action.name in ["BindMaterial", "BindMaterialCommand"]:
+            self.update_material_data(latest_action)
+            return
 
         # Get the top-level prim (World)
         settings = carb.settings.get_settings()
@@ -343,50 +434,82 @@ class MaterialManagerExtended(omni.ext.IExt):
                     variants.append(child)
         return variants
 
+    def get_mesh_data(self, looks_path, folder_name):
+        if folder_name:
+            data_attr_path = Sdf.Path(f"{looks_path}/MME/{folder_name}.MMEMeshData")
+        else:
+            data_attr_path = Sdf.Path(f"{looks_path}/MME.MMEMeshData")
+        data_attr = self.stage.GetAttributeAtPath(data_attr_path)
+        if data_attr:
+            attr_value = data_attr.Get()
+            if attr_value:
+                result = []
+                # decode base64 string and load json
+                for item in attr_value:
+                    result.append(json.loads(base64.b64decode(item).decode("utf-8")))
+                return result
+
+    def set_mesh_data(self, mesh_materials, looks_path, folder_name):
+        """
+        It creates a custom attribute on a USD prim, and sets the value of that attribute to a list of base64
+        encoded JSON strings
+        
+        :param mesh_materials: A list of dictionaries containing the following keys: path, mesh
+        :param looks_path: The path to the looks prim
+        :param folder_name: The name of the folder that contains the mesh data
+        """
+        # Convert every Path to string in mesh_materials to be able to pass it into JSON
+        all_materials = [{
+            "path": str(mat_data["path"]),
+            "mesh": str(mat_data["mesh"]),
+        } for mat_data in mesh_materials]
+
+        if folder_name:
+            data_attr_path = Sdf.Path(f"{looks_path}/MME/{folder_name}.MMEMeshData")
+        else:
+            data_attr_path = Sdf.Path(f"{looks_path}/MME.MMEMeshData")
+        omni.kit.commands.execute(
+            'CreateUsdAttributeOnPath',
+            attr_path=data_attr_path,
+            attr_type=Sdf.ValueTypeNames.StringArray,
+            custom=True,
+            variability=Sdf.VariabilityVarying,
+            attr_value=[base64.b64encode(json.dumps(i).encode()) for i in all_materials],
+        )
+
     def delete_variant(self, prim_path, looks, parent_prim):
         omni.kit.commands.execute('DeletePrims', paths=[prim_path, ])
         self.render_variants_frame(looks, parent_prim)
 
+    def get_data_from_folder(self, folder_path):
+        data = []
+        # Get MMEMeshData attribute from the folder
+        data_attr_path = Sdf.Path(f"{folder_path}.MMEMeshData")
+        data_attr = self.stage.GetAttributeAtPath(data_attr_path)
+        if data_attr:
+            attr_value = data_attr.Get()
+            if attr_value:
+                # decode base64 string and load json
+                for item in attr_value:
+                    data.append(json.loads(base64.b64decode(item).decode("utf-8")))
+        return data
+
     def enable_variant(self, folder_name, looks, parent_prim):
-        all_meshes = []
-        # Get all meshes
-        for mesh in parent_prim.GetChildren():
-            if mesh.GetTypeName() == "Mesh":
-                all_meshes.append(mesh)
-        
         if folder_name is None:
-            new_looks_folder = looks
+            new_looks_folder = looks.GetPrimAtPath(f"MME")
         else:
             new_looks_folder = looks.GetPrimAtPath(f"MME/{folder_name}")
         new_looks_folder_path = new_looks_folder.GetPath()
-        processed_materials = []
-        all_materials = []
-        # loop through all meshes
-        for mesh_data in all_meshes:
-            # Get currently binded materials for the current mesh
-            current_material_prims = mesh_data.GetRelationship('material:binding').GetTargets()
-            
-            # Loop through all binded materials paths
-            for original_material_prim_path in current_material_prims:
-                original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
-                # Check if was not already processed to avoid duplicates
-                if original_material_prim_path not in processed_materials:
-                    all_materials.append({
-                        "name": original_material_prim.GetName(),
-                    })
-                    processed_materials.append(original_material_prim_path)
-                
-        for mat_data in all_materials:
-            mat_name = mat_data["name"]
-            
-            # Bind the new material to the mesh
-            omni.kit.commands.execute(
-                'BindMaterial',
-                material_path=f'{new_looks_folder_path}/{mat_name}',
-                prim_path=mesh_data.GetPath(),
-                strength=['weakerThanDescendants']
+        all_materials = self.get_data_from_folder(new_looks_folder_path)
+        self.deactivate_all_variants(looks)
+        is_active_attr_path = Sdf.Path(f"{new_looks_folder_path}.MMEisActive")
+        omni.kit.commands.execute(
+                'ChangeProperty',
+                prop_path=is_active_attr_path,
+                value=True,
+                prev="",
             )
-                    
+        self.bind_materials(all_materials, None if folder_name is None else new_looks_folder_path)
         self.render_variants_frame(looks, parent_prim)
 
     def select_material(self, associated_mesh):
@@ -416,32 +539,48 @@ class MaterialManagerExtended(omni.ext.IExt):
                     break
         active_status = '' if is_variants_active else ' (Active)'
         if not self.materials_frame_original:
-            self.materials_frame_original = ui.Frame(name="materials_frame_original", identifier="materials_frame_original")
+            self.materials_frame_original = ui.Frame(
+                name="materials_frame_original",
+                identifier="materials_frame_original"
+            )
         with self.materials_frame_original:
-            with ui.CollapsableFrame(f"Original{active_status}", height=ui.Pixel(10), collapsed=is_variants_active):
+            with ui.CollapsableFrame(f"Original{active_status}",
+                                     height=ui.Pixel(10),
+                                     collapsed=is_variants_active):
                 with ui.VStack():
                     ui.Label("Your original, unmodified materials. Cannot be deleted.", name="variant_label", height=40)
                     if is_variants_active:
                         with ui.HStack():
-                            ui.Button("Enable", name="variant_button", clicked_fn=lambda: self.enable_variant(None, looks, parent_prim))
+                            ui.Button(
+                                "Enable",
+                                name="variant_button",
+                                clicked_fn=lambda: self.enable_variant(None, looks, parent_prim))
         
         if not self.materials_frame:
             self.materials_frame = ui.Frame(name="materials_frame", identifier="materials_frame")
         with self.materials_frame:
             with ui.VStack():
                 for variant_prim in all_variants:
+                    prim_name = variant_prim.GetName()
+                    enable_variant_fn=lambda p_name=prim_name: self.enable_variant(p_name, looks, parent_prim)
+                    prim_path = variant_prim.GetPath()
+                    delete_variant_fn=lambda p_path=prim_path: self.delete_variant(p_path, looks, parent_prim)
+
+
                     is_active_attr = variant_prim.GetAttribute("MMEisActive")
                     if is_active_attr:
                         is_active = is_active_attr.Get()
                         active_status = ' (Active)' if is_active else ''
-                        with ui.CollapsableFrame(f"{variant_prim.GetName()}{active_status}", height=ui.Pixel(10), collapsed=not is_active):
+                        with ui.CollapsableFrame(f"{variant_prim.GetName()}{active_status}",
+                                                 height=ui.Pixel(10),
+                                                 collapsed=not is_active):
                             with ui.VStack():
                                 with ui.HStack():
                                     if not active_status:
-                                        prim_name = variant_prim.GetName()
-                                        ui.Button("Enable", name="variant_button", clicked_fn=lambda p_name=prim_name: self.enable_variant(p_name, looks, parent_prim))
-                                        prim_path = variant_prim.GetPath()
-                                        ui.Button("Delete", name="variant_button", clicked_fn=lambda p_path=prim_path: self.delete_variant(p_path, looks, parent_prim))
+                                        
+                                        ui.Button("Enable", name="variant_button", clicked_fn=enable_variant_fn)
+                                        
+                                        ui.Button("Delete", name="variant_button", clicked_fn=delete_variant_fn)
                                     else:
                                         label_text = "This variant is enabled.\nMake changes to the active materials from above to edit this variant.\nAll changes will be saved automatically."
                                         ui.Label(label_text, name="variant_label", height=40)
@@ -476,72 +615,72 @@ class MaterialManagerExtended(omni.ext.IExt):
             with ui.VStack(style=self._style):
                 ui.Label(prim.GetName(), name="main_label", height=40)
                 ui.Spacer(height=10)
-                with ui.VStack(height=250):
-                    with ui.CollapsableFrame("Active materials", height=ui.Pixel(10), collapsed=True):
-                        with ui.VGrid(column_count=materials_column_count):
-                            material_counter = 1
-                            # loop through all meshes
-                            for mesh_data in all_meshes:
-                                # Get currently binded materials for the current mesh
-                                current_material_prims = mesh_data["material_paths"]
-                                # Loop through all binded materials paths
-                                for original_material_prim_path in current_material_prims:
-                                    if original_material_prim_path in processed_materials:
-                                        continue
-                                    # Get the material prim from path
-                                    original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
-                                    with ui.HStack():
-                                        if materials_column_count == 1:
-                                            ui.Label(
-                                                f"{material_counter}",
-                                                name="material_counter",
-                                                width=40,
-                                            )
-                                            ui.Image(
-                                                self.material_icon,
-                                                height=24,
-                                                width=24,
-                                            )
-                                            ui.Spacer(height=10, width=10)
-                                            ui.Label(
-                                                original_material_prim.GetName(),
-                                                
-                                                elided_text=True
-                                            )
+                with ui.CollapsableFrame("Active materials", height=ui.Pixel(10), collapsed=True):
+                    with ui.VGrid(column_count=materials_column_count):
+                        material_counter = 1
+                        # loop through all meshes
+                        for mesh_data in all_meshes:
+                            sl_mat_fn = lambda mesh_path=mesh_data["mesh"].GetPath(): self.select_material(mesh_path)
+                            # Get currently binded materials for the current mesh
+                            current_material_prims = mesh_data["material_paths"]
+                            # Loop through all binded materials paths
+                            for original_material_prim_path in current_material_prims:
+                                if original_material_prim_path in processed_materials:
+                                    continue
+                                # Get the material prim from path
+                                original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
+                                with ui.HStack():
+                                    if materials_column_count == 1:
+                                        ui.Label(
+                                            f"{material_counter}",
+                                            name="material_counter",
+                                            width=40,
+                                        )
+                                        ui.Image(
+                                            self.material_icon,
+                                            height=24,
+                                            width=24,
+                                        )
+                                        ui.Spacer(height=10, width=10)
+                                        ui.Label(
+                                            original_material_prim.GetName(),
                                             
-                                            ui.Button(
-                                                "Select",
-                                                name="variant_button",
-                                                width=ui.Percent(30),
-                                                clicked_fn=lambda mesh_path=mesh_data["mesh"].GetPath(): self.select_material(mesh_path),
-                                            )
-                                        else:
-                                            ui.Label(
-                                                f"{material_counter}",
-                                                name="material_counter",
-                                                width=50,
-                                            )
-                                            ui.Image(
-                                                self.material_icon,
-                                                height=24,
-                                                width=24,
-                                            )
+                                            elided_text=True
+                                        )
+                                        
+                                        ui.Button(
+                                            "Select",
+                                            name="variant_button",
+                                            width=ui.Percent(30),
+                                            clicked_fn=sl_mat_fn,
+                                        )
+                                    else:
+                                        ui.Label(
+                                            f"{material_counter}",
+                                            name="material_counter",
+                                            width=50,
+                                        )
+                                        ui.Image(
+                                            self.material_icon,
+                                            height=24,
+                                            width=24,
+                                        )
+                                        
+                                        ui.Label(
+                                            original_material_prim.GetName(),
                                             
-                                            ui.Label(
-                                                original_material_prim.GetName(),
-                                                
-                                                elided_text=True
-                                            )
-                                            
-                                            ui.Button(
-                                                "Select",
-                                                name="variant_button",
-                                                width=ui.Percent(30),
-                                                clicked_fn=lambda: self.select_material(mesh_data["mesh"].GetPath()),
-                                            )
-                                    material_counter += 1
-                                    processed_materials.append(original_material_prim_path)
-                            ui.Spacer(height=20)
+                                            elided_text=True
+                                        )
+                                        
+                                        ui.Button(
+                                            "Select",
+                                            name="variant_button",
+                                            width=ui.Percent(30),
+                                            clicked_fn=sl_mat_fn,
+                                        )
+                                material_counter += 1
+                                processed_materials.append(original_material_prim_path)
+                        ui.Spacer(height=20)
                 ui.Spacer(height=20)
                 ui.Label("All variants", name="secondary_label", height=40)
                 self.render_variants_frame(looks, prim)
@@ -576,4 +715,3 @@ class MaterialManagerExtended(omni.ext.IExt):
                 self.render_scenelevel_frame()
             else:
                 self.render_objectlevel_frame(prim)
-            
