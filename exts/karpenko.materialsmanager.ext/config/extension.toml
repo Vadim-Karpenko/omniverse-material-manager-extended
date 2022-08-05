@@ -13,10 +13,10 @@ readme  = "docs/README.md"
 repository = ""
 
 # One of categories for UI.
-category = "Example"
+category = "Material"
 
 # Keywords for the extension
-keywords = ["kit", "example"]
+keywords = ["material", "materials", "manager", ]
 
 
 # Use omni.ui to build simple UI
