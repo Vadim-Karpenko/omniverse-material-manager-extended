@@ -11,6 +11,9 @@ from omni.kit.stage.copypaste.prim_serializer import (get_prim_as_text,
                                                       text_to_stage)
 from pxr import Sdf
 from .style import materialsmanager_window_style as _style
+from .viewport_ui.widget_info_scene import WidgetInfoScene
+from omni.kit.viewport.utility import get_active_viewport_window
+
 
 class MaterialManagerExtended(omni.ext.IExt):
     WINDOW_NAME = "Material Manager"
@@ -27,6 +30,8 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.materials_frame = None
         self.main_frame = None
         self.ignore_change = False
+        self.ext_id = ext_id
+        self._widget_info_viewport = None
         self.current_ui = "default"
         self.stage = self._usd_context.get_stage()
         self.allowed_commands = [
@@ -52,6 +57,8 @@ class MaterialManagerExtended(omni.ext.IExt):
         omni.kit.commands.unsubscribe_on_change(self.on_change)
         # Deregister the function that shows the window from omni.ui
         ui.Workspace.set_show_window_fn(self.WINDOW_NAME, None)
+        self._window.destroy()
+        self._window = None
         self._selection = None
         self._usd_context = None
         self.latest_selected_prim = None
@@ -59,6 +66,9 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.variants_frame = None
         self.materials_frame = None
         self.main_frame = None
+        if self._widget_info_viewport:
+            self._widget_info_viewport.destroy()
+            self._widget_info_viewport = None
         print("[karpenko.materialsmanager.ext] MaterialManagerExtended shutdown")
 
     def get_latest_version(self, looks):
@@ -410,6 +420,8 @@ class MaterialManagerExtended(omni.ext.IExt):
 
         :return: None
         """
+        if not self.stage:
+            return
         # Get history of commands
         current_history = reversed(omni.kit.undo.get_history().values())
         # Get the latest one
@@ -580,7 +592,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         omni.kit.commands.execute('DeletePrims', paths=[prim_path, ])
         self.render_variants_frame(looks, parent_prim)
 
-    def enable_variant(self, folder_name, looks, parent_prim):
+    def enable_variant(self, folder_name, looks, parent_prim, ignore_changes=True):
         """
         It takes a folder name, a looks prim, and a parent prim, and then it activates the variant in the folder,
         binds the materials in the variant, and renders the variant and current materials frames
@@ -589,8 +601,10 @@ class MaterialManagerExtended(omni.ext.IExt):
         :param looks: the looks prim
         :param parent_prim: The prim that contains the variant sets
         """
+        if ignore_changes:
+            self.ignore_change = True
         if folder_name is None:
-            new_looks_folder = looks.GetPrimAtPath(f"MME")
+            new_looks_folder = looks.GetPrimAtPath("MME")
         else:
             new_looks_folder = looks.GetPrimAtPath(f"MME/{folder_name}")
         new_looks_folder_path = new_looks_folder.GetPath()
@@ -604,8 +618,10 @@ class MaterialManagerExtended(omni.ext.IExt):
                 prev=False,
             )
         self.bind_materials(all_materials, None if folder_name is None else new_looks_folder_path)
-        self.render_variants_frame(looks, parent_prim)
+        self.render_variants_frame(looks, parent_prim, ignore_widget=True)
         self.render_current_materials_frame(parent_prim)
+        if ignore_changes:
+            self.ignore_change = False
 
     def select_material(self, associated_mesh):
         """
@@ -624,7 +640,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                     property_window = ui.Workspace.get_window("Property")
                     ui.WindowHandle.focus(property_window)
 
-    def render_variants_frame(self, looks, parent_prim):
+    def render_variants_frame(self, looks, parent_prim, ignore_widget=False):
         """
         It renders the variants frame, it contains all the variants of the current prim
 
@@ -689,6 +705,29 @@ class MaterialManagerExtended(omni.ext.IExt):
                                     else:
                                         label_text = "This variant is enabled.\nMake changes to the active materials from above to edit this variant.\nAll changes will be saved automatically."
                                         ui.Label(label_text, name="variant_label", height=40)
+        if not ignore_widget:
+            if self._widget_info_viewport:
+                self._widget_info_viewport.destroy()
+                self._widget_info_viewport = None
+            if len(all_variants) > 0:
+                # Get the active (which at startup is the default Viewport)
+                viewport_window = get_active_viewport_window()
+
+                # Issue an error if there is no Viewport
+                if not viewport_window:
+                    carb.log_warn(f"No Viewport Window to add {self.ext_id} scene to")
+                    self._widget_info_viewport = None
+                    return
+
+                # Build out the scene
+                self._widget_info_viewport = WidgetInfoScene(
+                    viewport_window,
+                    self.ext_id,
+                    all_variants=all_variants,
+                    enable_variant=self.enable_variant,
+                    looks=looks,
+                    parent_prim=parent_prim
+                )
 
         return self.variants_frame_original, self.variants_frame
 

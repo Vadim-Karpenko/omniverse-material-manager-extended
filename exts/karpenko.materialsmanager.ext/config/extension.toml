@@ -22,7 +22,15 @@ keywords = ["material", "materials", "manager", ]
 # Use omni.ui to build simple UI
 [dependencies]
 "omni.kit.uiapp" = {}
+"omni.kit.viewport.utility" = {  }
+"omni.ui.scene" = {  }
+"omni.usd" = {  }
 
 # Main python module this extension provides, it will be publicly available as "import karpenko.materialsmanager.ext".
 [[python.module]]
 name = "karpenko.materialsmanager.ext"
+
+dependencies = [
+    "omni.kit.renderer.core",
+    "omni.kit.renderer.capture",
+]
