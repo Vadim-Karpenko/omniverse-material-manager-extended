@@ -12,9 +12,9 @@ from omni.kit.stage.copypaste.prim_serializer import (get_prim_as_text,
 from pxr import Sdf
 from .style import materialsmanager_window_style as _style
 
-
 class MaterialManagerExtended(omni.ext.IExt):
     WINDOW_NAME = "Material Manager"
+    SCENE_MANAGER_WINDOW_NAME = "Scene Material Manager"
 
     def on_startup(self, ext_id):
         print("[karpenko.materialsmanager.ext] MaterialManagerExtended startup")
@@ -23,6 +23,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.latest_selected_prim = None
         self.variants_frame_original = None
         self.variants_frame = None
+        self.active_objects_frame = None
         self.materials_frame = None
         self.main_frame = None
         self.ignore_change = False
@@ -43,7 +44,6 @@ class MaterialManagerExtended(omni.ext.IExt):
 
         omni.kit.commands.subscribe_on_change(self.on_change)
         self.render_default_layout()
-        ui.Workspace.show_window(self.WINDOW_NAME)
 
     def on_shutdown(self):
         """
@@ -163,7 +163,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 value=True,
                 prev="",
             )
-
+        self.ignore_change = False
         self.render_variants_frame(looks, parent_prim)
 
     def get_meshes_from_prim(self, parent_prim):
@@ -221,28 +221,29 @@ class MaterialManagerExtended(omni.ext.IExt):
         # Check if there is a variant folder where new materials are stored
         if variant_folder_path:
             variant_materials_prim = self.stage.GetPrimAtPath(variant_folder_path)
-        # loop through all passed materials
-        for mat_data in all_materials:
-            if variant_folder_path and variant_materials_prim:
-                # loop throug all materials in the variant folder
-                for var_mat in variant_materials_prim.GetChildren():
-                    # If found material matches with the one in the all_materials list, bind it to the mesh
-                    if var_mat.GetName() == str(mat_data["path"]).split("/")[-1]:
-                        omni.kit.commands.execute(
-                            "BindMaterial",
-                            prim_path=mat_data["mesh"],
-                            material_path=var_mat.GetPath(),
-                            strength=['weakerThanDescendants']
-                        )
-                        break
-            else:
-                # If there's no variant folder, then just bind passed material to the mesh
-                omni.kit.commands.execute(
-                    'BindMaterial',
-                    material_path=mat_data["path"],
-                    prim_path=mat_data["mesh"],
-                    strength=['weakerThanDescendants']
-                )
+        with omni.kit.undo.group():
+            # loop through all passed materials
+            for mat_data in all_materials:
+                if variant_folder_path and variant_materials_prim:
+                    # loop throug all materials in the variant folder
+                    for var_mat in variant_materials_prim.GetChildren():
+                        # If found material matches with the one in the all_materials list, bind it to the mesh
+                        if var_mat.GetName() == str(mat_data["path"]).split("/")[-1]:
+                            omni.kit.commands.execute(
+                                "BindMaterial",
+                                prim_path=mat_data["mesh"],
+                                material_path=var_mat.GetPath(),
+                                strength=['weakerThanDescendants']
+                            )
+                            break
+                else:
+                    # If there's no variant folder, then just bind passed material to the mesh
+                    omni.kit.commands.execute(
+                        'BindMaterial',
+                        material_path=mat_data["path"],
+                        prim_path=mat_data["mesh"],
+                        strength=['weakerThanDescendants']
+                    )
 
     def deactivate_all_variants(self, looks):
         """
@@ -392,6 +393,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                     text_to_stage(self.stage, usd_code, active_folder_path)
                     self.ignore_change = True
                     self.bind_materials(mesh_data_to_update, active_folder_path)
+                    self.ignore_change = False
                 self.set_mesh_data(mesh_data, looks_path, folder_name)
                 self.render_current_materials_frame(parent_mesh)
 
@@ -420,7 +422,6 @@ class MaterialManagerExtended(omni.ext.IExt):
             return
         # To skip the changes made by the addon
         if self.ignore_change:
-            self.ignore_change = False
             return
         show_default_layout = True
 
@@ -429,8 +430,10 @@ class MaterialManagerExtended(omni.ext.IExt):
             return
 
         # Get the top-level prim (World)
-        settings = carb.settings.get_settings()
-        default_prim_name = settings.get("/persistent/app/stage/defaultPrimName")
+        default_prim = self.stage.GetDefaultPrim()
+        if not default_prim:
+            return
+        default_prim_name = default_prim.GetName()
         rootname = f"/{default_prim_name}"
         # Get currently selected prim
         paths = self._selection.get_selected_prim_paths()
@@ -617,6 +620,9 @@ class MaterialManagerExtended(omni.ext.IExt):
                 if current_material_prims:
                     omni.usd.get_context().get_selection().set_prim_path_selected(
                         str(current_material_prims[0]), True, True, True, True)
+                    ui.Workspace.show_window("Property", True)
+                    property_window = ui.Workspace.get_window("Property")
+                    ui.WindowHandle.focus(property_window)
 
     def render_variants_frame(self, looks, parent_prim):
         """
@@ -659,7 +665,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         if not self.variants_frame:
             self.variants_frame = ui.Frame(name="variants_frame", identifier="variants_frame")
         with self.variants_frame:
-            with ui.VStack():
+            with ui.VStack(height=ui.Pixel(10)):
                 for variant_prim in all_variants:
                     # Creating a functions that will be called later in this loop.
                     prim_name = variant_prim.GetName()
@@ -675,7 +681,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                         with ui.CollapsableFrame(f"{variant_prim.GetName()}{active_status}",
                                                  height=ui.Pixel(10),
                                                  collapsed=not is_active):
-                            with ui.VStack():
+                            with ui.VStack(height=ui.Pixel(10)):
                                 with ui.HStack():
                                     if not active_status:
                                         ui.Button("Enable", name="variant_button", clicked_fn=enable_variant_fn)
@@ -717,7 +723,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         if not self.materials_frame:
             self.materials_frame = ui.Frame(name="materials_frame", identifier="materials_frame")
         with self.materials_frame:
-            with ui.VGrid(column_count=materials_column_count):
+            with ui.VGrid(column_count=materials_column_count, height=ui.Pixel(10)):
                 material_counter = 1
                 # loop through all meshes
                 for mesh_data in all_meshes:
@@ -733,10 +739,12 @@ class MaterialManagerExtended(omni.ext.IExt):
                         if not original_material_prim:
                             continue
                         with ui.HStack():
+                            if materials_column_count == 1:
+                                ui.Spacer(height=10, width=10)
                             ui.Label(
-                                f"{material_counter}",
+                                f"{material_counter}.",
                                 name="material_counter",
-                                width=40 if materials_column_count == 1 else 50,
+                                width=20 if materials_column_count == 1 else 50,
                             )
                             ui.Image(
                                 height=24,
@@ -748,7 +756,8 @@ class MaterialManagerExtended(omni.ext.IExt):
                                 ui.Spacer(height=10, width=10)
                             ui.Label(
                                 original_material_prim.GetName(),
-                                elided_text=True
+                                elided_text=True,
+                                name="material_name"
                             )
                             ui.Button(
                                 "Select",
@@ -758,7 +767,13 @@ class MaterialManagerExtended(omni.ext.IExt):
                             )
                         material_counter += 1
                         processed_materials.append(original_material_prim_path)
-                ui.Spacer(height=10, width=10)
+                if len(all_meshes) == 0:
+                    ui.Label(
+                        "No materials were found. Please make sure that the selected model is valid.",
+                        name="main_hint", 
+                        height=30
+                    )
+                ui.Spacer(height=10)
         return self.materials_frame
 
     def render_objectlevel_frame(self, prim):
@@ -777,13 +792,25 @@ class MaterialManagerExtended(omni.ext.IExt):
             self.main_frame = ui.Frame(name="main_frame", identifier="main_frame")
         with self.main_frame:
             with ui.VStack(style=_style):
-                ui.Label(prim.GetName(), name="main_label", height=40)
+                with ui.HStack(height=ui.Pixel(10), name="label_container"):
+                    ui.Spacer(width=10)
+                    ui.Label(prim.GetName(), name="main_label", height=ui.Pixel(10))
+                ui.Spacer(height=6)
+                ui.Separator(height=6)
                 ui.Spacer(height=10)
-                ui.Label("Active materials", name="secondary_label", height=40)
-                self.render_current_materials_frame(prim)
 
-                ui.Label("All variants", name="secondary_label", height=40)
-                self.render_variants_frame(looks, prim)
+                with ui.CollapsableFrame("Active materials",
+                                         height=ui.Pixel(10),
+                                         collapsed=True):
+                    self.render_current_materials_frame(prim)
+
+                ui.Spacer(height=10)
+                with ui.HStack(height=ui.Pixel(30)):
+                    ui.Spacer(width=10)
+                    ui.Label("All variants", name="secondary_label")
+                with ui.ScrollingFrame(height=ui.Pixel(190)):
+                    with ui.VStack():
+                        self.render_variants_frame(looks, prim)
                 ui.Spacer(height=20)
                 ui.Button(
                     "Add new variant",
@@ -799,6 +826,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         with self.main_frame:
             with ui.VStack(style=_style):
                 ui.Label("Please select any object to see its materials", name="main_hint")
+        return self.main_frame
 
     def render_default_layout(self, prim=None):
         if self.main_frame:
@@ -813,20 +841,3 @@ class MaterialManagerExtended(omni.ext.IExt):
                 self.render_scenelevel_frame()
             else:
                 self.render_objectlevel_frame(prim)
-
-
-class SceneMaterialManager(omni.ext.IExt):
-    WINDOW_NAME = "Scene Material Manager"
-
-    def on_startup(self, ext_id):
-        print("[karpenko.materialsmanager.ext] MaterialManagerExtended startup")
-        self._usd_context = omni.usd.get_context()
-        self._selection = self._usd_context.get_selection()
-        self.render_default_layout()
-        ui.Workspace.show_window(self.WINDOW_NAME)
-
-    def render_default_layout(self):
-        self._window = ui.Window(self.WINDOW_NAME, width=300, height=300)
-        with self._window.frame:
-            with ui.VStack(style=_style):
-                ui.Label("Test")

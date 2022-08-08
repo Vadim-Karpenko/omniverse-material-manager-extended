@@ -11,6 +11,7 @@ __all__ = ["materialsmanager_window_style"]
 import omni.kit.app
 import omni.ui as ui
 import pathlib
+from omni.ui import color as cl
 
 EXTENSION_FOLDER_PATH = pathlib.Path(
     omni.kit.app.get_app().get_extension_manager().get_extension_path_by_module(__name__)
@@ -23,12 +24,14 @@ materialsmanager_window_style = {
         "image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/material@3x.png",
     },
     "Image::collapsable_opened": {"image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/opened.svg"},
-    "Image::collapsable_closed": {"image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/closed.svg"},
+    "Image::collapsable_closed": {
+        "image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/closed.svg", 
+        "color": cl("#a1a1a1")
+    },
     "Label::main_label": {
-        "alignment": ui.Alignment.CENTER_TOP,
-        "margin_height": 1,
-        "margin_width": 10,
-        "font_size": 32,
+        "alignment": ui.Alignment.LEFT_CENTER,
+        "color": cl("#a1a1a1"),
+        "font_size": 24,
     },
     "Label::main_hint": {
         "alignment": ui.Alignment.CENTER,
@@ -37,16 +40,13 @@ materialsmanager_window_style = {
         "font_size": 16,
     },
     "Label::material_name": {
-        "alignment": ui.Alignment.CENTER_TOP,
-        "margin_height": 1,
-        "margin_width": 10,
+        "alignment": ui.Alignment.LEFT_CENTER,
         "font_size": 14,
     },
     "Label::secondary_label": {
         "alignment": ui.Alignment.LEFT_CENTER,
-        "margin_height": 1,
-        "margin_width": 10,
-        "font_size": 24,
+        "color": cl("#a1a1a1"),
+        "font_size": 18,
     },
     "Label::material_counter": {
         "alignment": ui.Alignment.CENTER,
