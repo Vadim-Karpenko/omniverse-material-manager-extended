@@ -39,6 +39,10 @@ materialsmanager_window_style = {
         "margin_width": 10,
         "font_size": 16,
     },
+    "Label::main_hint_small": {
+        "alignment": ui.Alignment.CENTER,
+        "color": cl("#a1a1a1"),
+    },
     "Label::material_name": {
         "alignment": ui.Alignment.LEFT_CENTER,
         "font_size": 14,

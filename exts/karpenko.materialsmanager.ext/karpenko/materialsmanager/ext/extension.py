@@ -17,7 +17,7 @@ from omni.kit.viewport.utility import get_active_viewport_window
 
 class MaterialManagerExtended(omni.ext.IExt):
     WINDOW_NAME = "Material Manager"
-    SCENE_MANAGER_WINDOW_NAME = "Scene Material Manager"
+    SCENE_SETTINGS_WINDOW_NAME = "Material Manager Settings"
 
     def on_startup(self, ext_id):
         print("[karpenko.materialsmanager.ext] MaterialManagerExtended startup")
@@ -174,6 +174,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 prev="",
             )
         self.ignore_change = False
+        self.render_scene_settings_layout()
         self.render_variants_frame(looks, parent_prim)
 
     def get_meshes_from_prim(self, parent_prim):
@@ -859,12 +860,33 @@ class MaterialManagerExtended(omni.ext.IExt):
                     tooltip="Create a new variant, based on the current look",
                 )
 
+    def open_scene_settings(self):
+        ui.Workspace.show_window(self.SCENE_SETTINGS_WINDOW_NAME, True)
+        scene_settings_window = ui.Workspace.get_window(self.SCENE_SETTINGS_WINDOW_NAME)
+        ui.WindowHandle.focus(scene_settings_window)
+        self.render_scene_settings_layout()
+
     def render_scenelevel_frame(self):
         if not self.main_frame:
             self.main_frame = ui.Frame(name="main_frame", identifier="main_frame")
         with self.main_frame:
             with ui.VStack(style=_style):
-                ui.Label("Please select any object to see its materials", name="main_hint")
+                ui.Spacer()
+                with ui.VStack():
+                    ui.Label("Please select any object to see its materials", name="main_hint", height=30)
+                    ui.Label("or", name="main_hint_small", height=10)
+                    ui.Spacer(height=5)
+                    with ui.HStack(height=ui.Pixel(10)):
+                        ui.Spacer()
+                        ui.Button(
+                            "Open settings",
+                            height=20,
+                            width=150,
+                            name="open_mme_settings",
+                            clicked_fn=self.open_scene_settings,
+                        )
+                        ui.Spacer()
+                ui.Spacer()
         return self.main_frame
 
     def render_default_layout(self, prim=None):
@@ -880,3 +902,114 @@ class MaterialManagerExtended(omni.ext.IExt):
                 self.render_scenelevel_frame()
             else:
                 self.render_objectlevel_frame(prim)
+
+    # SCENE SETTINGS
+    def is_MME_exists(self, prim):
+        for child in prim.GetChildren():
+            if child.GetName() == "Looks":
+                if child.GetPrimAtPath("MME"):
+                    return True
+                else:
+                    return False
+            if self.is_MME_exists(child):
+                return True
+        return False
+
+    def get_mme_valid_objects_on_stage(self):
+        """
+        Returns a list of valid objects on the stage.
+        """
+        if not self.stage:
+            return []
+        valid_objects = []
+        default_prim = self.stage.GetDefaultPrim()
+        # Get all objects and check if it has Looks folder
+        for obj in default_prim.GetAllChildren():
+            if self.is_MME_exists(obj):
+                valid_objects.append(obj)
+        return valid_objects
+
+    def select_prim(self, prim_path):
+        omni.kit.commands.execute(
+            'SelectPrimsCommand',
+            old_selected_paths=[],
+            new_selected_paths=[str(prim_path), ],
+            expand_in_stage=True
+        )
+        ui.Workspace.show_window("Material Manager", True)
+        property_window = ui.Workspace.get_window("Material Manager")
+        ui.WindowHandle.focus(property_window)
+
+    def render_active_objects_frame(self, valid_objects):
+        objects_quantity = len(valid_objects)
+        objects_column_count = 1
+        if objects_quantity > 6:
+            objects_column_count = 2
+        if not self.active_objects_frame:
+            self.active_objects_frame = ui.Frame(name="active_objects_frame", identifier="active_objects_frame")
+        with self.active_objects_frame:
+            with ui.VGrid(column_count=objects_column_count, height=ui.Pixel(10)):
+                material_counter = 1
+                # loop through all meshes
+                for prim in valid_objects:
+                    if not prim:
+                        continue
+                    sl_obj_fn = lambda mesh_path=prim.GetPath(): self.select_prim(mesh_path)
+                    with ui.HStack():
+                        if objects_column_count == 1:
+                            ui.Spacer(height=10, width=10)
+                        ui.Label(
+                            f"{material_counter}.",
+                            name="material_counter",
+                            width=20 if objects_column_count == 1 else 50,
+                        )
+                        if objects_column_count == 1:
+                            ui.Spacer(height=10, width=10)
+                        ui.Label(
+                            prim.GetName(),
+                            elided_text=True,
+                            name="material_name"
+                        )
+                        ui.Button(
+                            "Select",
+                            name="variant_button",
+                            width=ui.Percent(30),
+                            clicked_fn=sl_obj_fn,
+                        )
+                        material_counter += 1
+                if objects_quantity == 0:
+                    ui.Label(
+                        "No models with variants were found.",
+                        name="main_hint",
+                        height=30
+                    )
+                ui.Spacer(height=10)
+        return self.active_objects_frame
+
+    def render_scene_settings_layout(self):
+        valid_objects = self.get_mme_valid_objects_on_stage()
+        self._window_scenemanager = ui.Window(self.SCENE_SETTINGS_WINDOW_NAME, width=300, height=300)
+        if self.active_objects_frame:
+            self.active_objects_frame = None
+        with self._window_scenemanager.frame:
+            with ui.VStack(style=_style):
+                with ui.HStack(height=ui.Pixel(10), name="label_container"):
+                    ui.Spacer(width=10)
+                    ui.Label(self.SCENE_SETTINGS_WINDOW_NAME, name="main_label", height=ui.Pixel(10))
+                ui.Spacer(height=6)
+                ui.Separator(height=6)
+                ui.Spacer(height=10)
+
+                with ui.CollapsableFrame("Models with variants",
+                                         height=ui.Pixel(10),
+                                         collapsed=True):
+                    self.render_active_objects_frame(valid_objects)
+                ui.Spacer(height=10)
+                with ui.HStack(height=ui.Pixel(30)):
+                    ui.Spacer(width=10)
+                    ui.Label("Settings", name="secondary_label")
+                # with ui.ScrollingFrame(height=ui.Pixel(190)):
+                #     with ui.VStack():
+                #         ui.Label("No variants exist at the moment.", name="main_hint", height=30)
+                #         #self.render_variants_frame(looks, prim)
+

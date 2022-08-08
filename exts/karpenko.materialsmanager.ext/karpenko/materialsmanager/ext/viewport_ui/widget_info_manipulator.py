@@ -141,7 +141,7 @@ class WidgetInfoManipulator(sc.Manipulator):
                 with sc.Transform(transform=sc.Matrix44.get_translation_matrix(0, 100, 0)):
                     # Label
                     with sc.Transform(look_at=sc.Transform.LookAt.CAMERA):
-                        self._widget = sc.Widget(500, 150, update_policy=sc.Widget.UpdatePolicy.ON_MOUSE_HOVERED)
+                        self._widget = sc.Widget(500, 130, update_policy=sc.Widget.UpdatePolicy.ON_MOUSE_HOVERED)
                         self._widget.frame.set_build_fn(self._on_build_widgets)
 
     def on_model_updated(self, _):
