@@ -36,6 +36,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.ext_id = ext_id
         self._widget_info_viewport = None
         self.current_ui = "default"
+        self.is_settings_open = False
         self.stage = self._usd_context.get_stage()
         self.allowed_commands = [
             "SelectPrimsCommand",
@@ -53,7 +54,7 @@ class MaterialManagerExtended(omni.ext.IExt):
 
         omni.kit.commands.subscribe_on_change(self.on_change)
         self.render_default_layout()
-        self.render_scene_settings_layout()
+
 
     def on_shutdown(self):
         """
@@ -890,10 +891,14 @@ class MaterialManagerExtended(omni.ext.IExt):
                 )
 
     def open_scene_settings(self):
+        if not self.is_settings_open:
+            self.render_scene_settings_layout()
+            self.is_settings_open = True
+        else:
+            self.render_active_objects_frame()
         ui.Workspace.show_window(self.SCENE_SETTINGS_WINDOW_NAME, True)
         scene_settings_window = ui.Workspace.get_window(self.SCENE_SETTINGS_WINDOW_NAME)
         ui.WindowHandle.focus(scene_settings_window)
-        self.render_active_objects_frame()
 
     def render_scenelevel_frame(self):
         if not self.main_frame:
@@ -1039,13 +1044,39 @@ class MaterialManagerExtended(omni.ext.IExt):
                 ui.Spacer(height=6)
                 ui.Separator(height=6)
                 ui.Spacer(height=10)
+                with ui.HStack(height=ui.Pixel(30)):
+                    ui.Spacer(width=10)
+                    ui.Label("Models with variants in your scene", name="secondary_label")
+                    ui.Spacer(height=40)
                 self.render_active_objects_frame(valid_objects)
                 ui.Spacer(height=10)
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
-                    ui.Label("Settings", name="secondary_label")
-                # with ui.ScrollingFrame(height=ui.Pixel(190)):
-                #     with ui.VStack():
-                #         ui.Label("No variants exist at the moment.", name="main_hint", height=30)
-                #         #self.render_variants_frame(looks, prim)
+                    ui.Label("Settings & Additional tools", name="secondary_label")
+                ui.Spacer(height=10)
+                ui.Separator(height=6)
+                with ui.ScrollingFrame():
+                    with ui.VStack():
+                        ui.Spacer(height=5)
+                        with ui.HStack(height=20):
+                            ui.Spacer(width=ui.Percent(5))
+                            ui.Label("Enable viewport widget rendering:", width=ui.Percent(70))
+                            ui.Spacer(width=ui.Percent(10))
+                            ui.CheckBox(checked=True, width=ui.Percent(15))
+                        ui.Spacer(height=10)
+                        ui.Separator(height=6)
+                        with ui.HStack(height=20):
+                            ui.Spacer(width=ui.Percent(5))
+                            ui.Label("Convert selected meshes into separate object:", width=ui.Percent(70))
+                            ui.Spacer(width=ui.Percent(10))
+                            ui.Button("Convert", width=ui.Percent(15))
+                        ui.Spacer(height=10)
+                        ui.Separator(height=6)
+                        with ui.HStack(height=20):
+                            ui.Spacer(width=ui.Percent(5))
+                            ui.Label("Remove unatached materials from the scene:", width=ui.Percent(70))
+                            ui.Spacer(width=ui.Percent(10))
+                            ui.Button("Remove", width=ui.Percent(15))
+                        ui.Spacer(height=10)
+                        ui.Separator(height=6)
 

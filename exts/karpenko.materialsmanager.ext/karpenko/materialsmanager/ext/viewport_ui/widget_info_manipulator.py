@@ -11,7 +11,7 @@ __all__ = ["WidgetInfoManipulator"]
 from omni.ui import color as cl
 from omni.ui import scene as sc
 import omni.ui as ui
-
+from ..style import viewport_widget_style
 
 class _ViewportLegacyDisableSelection:
     """Disables selection in the Viewport Legacy"""
@@ -86,15 +86,20 @@ class WidgetInfoManipulator(sc.Manipulator):
         self._distance_to_top = 5
         self._thickness = 2
         self._radius_hovered = 20
+        self.prev_button = None
+        self.next_button = None
+
 
     def destroy(self):
         self._root = None
         self._slider_subscription = None
         self._slider_model = None
         self._name_label = None
+        self.prev_button = None
+        self.next_button = None
 
     def _on_build_widgets(self):
-        with ui.ZStack():
+        with ui.ZStack(height=70, style=viewport_widget_style):
             ui.Rectangle(
                 style={
                     "background_color": cl(0.2),
@@ -103,29 +108,24 @@ class WidgetInfoManipulator(sc.Manipulator):
                     "border_radius": 4,
                 }
             )
-            with ui.VStack(style={"font_size": 24}):
+            with ui.VStack():
                 ui.Spacer(height=4)
-                with ui.ZStack(style={"margin": 1}, height=30):
-                    ui.Rectangle(
-                        style={
-                            "background_color": cl(0.0),
-                        }
-                    )
-                    ui.Line(style={"color": cl(0.7), "border_width": 2}, alignment=ui.Alignment.BOTTOM)
-                    ui.Label("Choose material preset", height=0, alignment=ui.Alignment.CENTER)
-
-                ui.Spacer(height=4)
-                self._name_label = ui.Label("", height=0, alignment=ui.Alignment.CENTER)
-
+                with ui.HStack():
+                    ui.Spacer(width=10)
+                    self.prev_button = ui.Button("Prev", width=100)
+                    self._name_label = ui.Label("", elided_text=True, name="name_label", height=0, alignment=ui.Alignment.CENTER_BOTTOM)
+                    self.next_button = ui.Button("Next", width=100)
+                    ui.Spacer(width=10)
                 # setup some model, just for simple demonstration here
                 self._slider_model = ui.SimpleIntModel()
 
-                ui.Spacer(height=10)
-                with ui.HStack():
+                ui.Spacer(height=5)
+                with ui.HStack(style={"font_size": 26}):
                     ui.Spacer(width=10)
                     ui.IntSlider(self._slider_model, min=0, max=len(self.all_variants))
+                    
                     ui.Spacer(width=10)
-                ui.Spacer(height=4)
+                ui.Spacer(height=8)
                 ui.Spacer()
 
         self.on_model_updated(None)
@@ -144,6 +144,15 @@ class WidgetInfoManipulator(sc.Manipulator):
                         self._widget = sc.Widget(500, 130, update_policy=sc.Widget.UpdatePolicy.ON_MOUSE_HOVERED)
                         self._widget.frame.set_build_fn(self._on_build_widgets)
 
+    # Update the slider
+    def update_variant(self, value):
+        if value == 0:
+            self.enable_variant(None, self.looks, self.parent_prim, ignore_changes=True)
+        else:
+            selected_variant = self.all_variants[value - 1]
+            prim_name = selected_variant.GetName()
+            self.enable_variant(prim_name, self.looks, self.parent_prim, ignore_changes=True)
+
     def on_model_updated(self, _):
         # if we don't have selection then show nothing
         if not self.model or not self.model.get_item("name"):
@@ -154,15 +163,6 @@ class WidgetInfoManipulator(sc.Manipulator):
         position = self.model.get_as_floats(self.model.get_item("position"))
         self._root.transform = sc.Matrix44.get_translation_matrix(*position)
         self._root.visible = True
-
-        # Update the slider
-        def update_scale(prim_name, value):
-            if value == 0:
-                self.enable_variant(None, self.looks, self.parent_prim, ignore_changes=True)
-            else:
-                selected_variant = self.all_variants[value - 1]
-                prim_name = selected_variant.GetName()
-                self.enable_variant(prim_name, self.looks, self.parent_prim, ignore_changes=True)
 
         active_index = 0
         for variant_prim in self.all_variants:
@@ -177,8 +177,14 @@ class WidgetInfoManipulator(sc.Manipulator):
             self._slider_subscription = None
             self._slider_model.as_int = active_index
             self._slider_subscription = self._slider_model.subscribe_value_changed_fn(
-                lambda m, p=self.model.get_item("name"): update_scale(p, m.as_int)
+                lambda m: self.update_variant(m.as_int)
             )
+
+        if self.prev_button and self.next_button:
+            self.prev_button.enabled = active_index > 0
+            self.next_button.enabled = active_index < len(self.all_variants)
+            self.prev_button.set_clicked_fn(lambda: self.update_variant(active_index - 1))
+            self.next_button.set_clicked_fn(lambda: self.update_variant(active_index + 1))
 
         # Update the shape name
         if self._name_label:

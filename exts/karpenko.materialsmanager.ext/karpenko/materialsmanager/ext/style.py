@@ -59,3 +59,20 @@ materialsmanager_window_style = {
         "font_size": 14,
     },
 }
+
+# The style dict for the viewport widget ui
+viewport_widget_style = {
+    "Button.Label": {
+        "font_size": 30,
+    },
+    "Button.Label:disabled": {
+        "color": cl("#a1a1a1")
+    },
+    "Button": {
+        "alignment": ui.Alignment.BOTTOM,
+    },
+    "Label::name_label": {
+        "alignment": ui.Alignment.CENTER_BOTTOM,
+        "font_size": 34,
+    }
+}
