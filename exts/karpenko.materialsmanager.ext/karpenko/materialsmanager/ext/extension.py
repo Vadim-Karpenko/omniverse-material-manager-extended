@@ -27,9 +27,12 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.variants_frame_original = None
         self.variants_frame = None
         self.active_objects_frame = None
+        self._window = None
+        self._window_scenemanager = None
         self.materials_frame = None
         self.main_frame = None
         self.ignore_change = False
+        self.ignore_settings_update = False
         self.ext_id = ext_id
         self._widget_info_viewport = None
         self.current_ui = "default"
@@ -46,9 +49,11 @@ class MaterialManagerExtended(omni.ext.IExt):
             "MovePrims",
             "MovePrim",
         ]
+        self.is_settings_window_open = False
 
         omni.kit.commands.subscribe_on_change(self.on_change)
         self.render_default_layout()
+        self.render_scene_settings_layout()
 
     def on_shutdown(self):
         """
@@ -57,8 +62,9 @@ class MaterialManagerExtended(omni.ext.IExt):
         omni.kit.commands.unsubscribe_on_change(self.on_change)
         # Deregister the function that shows the window from omni.ui
         ui.Workspace.set_show_window_fn(self.WINDOW_NAME, None)
-        self._window.destroy()
-        self._window = None
+        if self._window:
+            self._window.destroy()
+            self._window = None
         self._selection = None
         self._usd_context = None
         self.latest_selected_prim = None
@@ -174,7 +180,8 @@ class MaterialManagerExtended(omni.ext.IExt):
                 prev="",
             )
         self.ignore_change = False
-        self.render_scene_settings_layout()
+        if not self.ignore_settings_update:
+            self.render_active_objects_frame()
         self.render_variants_frame(looks, parent_prim)
 
     def get_meshes_from_prim(self, parent_prim):
@@ -298,7 +305,18 @@ class MaterialManagerExtended(omni.ext.IExt):
         :return: The parent of the mesh_prim.
         """
         parent_prim = mesh_prim.GetParent()
-        while parent_prim.GetTypeName() != "Xform":
+        default_prim = self.stage.GetDefaultPrim()
+        if not default_prim:
+            return
+        default_prim_name = default_prim.GetName()
+        rootname = f"/{default_prim_name}"
+        while True:
+            if parent_prim is None or parent_prim.IsPseudoRoot():
+                return parent_prim
+            if str(parent_prim.GetPath()) == "/" or str(parent_prim.GetPath()) == rootname:
+                return None
+            if parent_prim.GetPrimAtPath("Looks") and str(parent_prim.GetPath()) != rootname:
+                return parent_prim
             parent_prim = parent_prim.GetParent()
         return parent_prim
 
@@ -475,19 +493,31 @@ class MaterialManagerExtended(omni.ext.IExt):
                         pass
                     else:
                         # In case if something unexpected is selected, we just return None
-                        carb.log_warn(f"Selected {prim} does not has any materials")
+                        carb.log_warn(f"Selected {prim} does not has any materials or has invalid type.")
+                        return
+                    if not prim:
+                        if self._widget_info_viewport:
+                            self._widget_info_viewport = None
+                        self.render_scenelevel_frame()
                         return
                     if prim.GetPrimAtPath("Looks") and prim != self.latest_selected_prim:
                         # Save the type of the rendered window
                         self.current_ui = "object"
+                        if self._widget_info_viewport:
+                            self._widget_info_viewport = None
                         # Render new window for the selected prim
-                        self.render_current_materials_frame(prim)
                         self.render_objectlevel_frame(prim)
+                        if not self.ignore_settings_update:
+                            self.render_active_objects_frame()
                     show_default_layout = False
 
         if show_default_layout and self.current_ui != "default":
             self.current_ui = "default"
+            if self._widget_info_viewport:
+                self._widget_info_viewport = None
             self.render_scenelevel_frame()
+            if not self.ignore_settings_update:
+                self.render_active_objects_frame()
             self.latest_selected_prim = None
 
     def _get_looks(self, path):
@@ -708,7 +738,6 @@ class MaterialManagerExtended(omni.ext.IExt):
                                         ui.Label(label_text, name="variant_label", height=40)
         if not ignore_widget:
             if self._widget_info_viewport:
-                self._widget_info_viewport.destroy()
                 self._widget_info_viewport = None
             if len(all_variants) > 0:
                 # Get the active (which at startup is the default Viewport)
@@ -864,7 +893,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         ui.Workspace.show_window(self.SCENE_SETTINGS_WINDOW_NAME, True)
         scene_settings_window = ui.Workspace.get_window(self.SCENE_SETTINGS_WINDOW_NAME)
         ui.WindowHandle.focus(scene_settings_window)
-        self.render_scene_settings_layout()
+        self.render_active_objects_frame()
 
     def render_scenelevel_frame(self):
         if not self.main_frame:
@@ -896,6 +925,9 @@ class MaterialManagerExtended(omni.ext.IExt):
             self.variants_frame = None
         if self.variants_frame_original:
             self.variants_frame_original = None
+        if self._window:
+            self._window.destroy()
+            self._window = None
         self._window = ui.Window(self.WINDOW_NAME, width=300, height=300)
         with self._window.frame:
             if not prim:
@@ -925,11 +957,13 @@ class MaterialManagerExtended(omni.ext.IExt):
         default_prim = self.stage.GetDefaultPrim()
         # Get all objects and check if it has Looks folder
         for obj in default_prim.GetAllChildren():
-            if self.is_MME_exists(obj):
-                valid_objects.append(obj)
+            if obj:
+                if self.is_MME_exists(obj):
+                    valid_objects.append(obj)
         return valid_objects
 
     def select_prim(self, prim_path):
+        self.ignore_settings_update = True
         omni.kit.commands.execute(
             'SelectPrimsCommand',
             old_selected_paths=[],
@@ -939,8 +973,11 @@ class MaterialManagerExtended(omni.ext.IExt):
         ui.Workspace.show_window("Material Manager", True)
         property_window = ui.Workspace.get_window("Material Manager")
         ui.WindowHandle.focus(property_window)
+        self.ignore_settings_update = False
 
-    def render_active_objects_frame(self, valid_objects):
+    def render_active_objects_frame(self, valid_objects=None):
+        if not valid_objects:
+            valid_objects = self.get_mme_valid_objects_on_stage()
         objects_quantity = len(valid_objects)
         objects_column_count = 1
         if objects_quantity > 6:
@@ -988,6 +1025,9 @@ class MaterialManagerExtended(omni.ext.IExt):
 
     def render_scene_settings_layout(self):
         valid_objects = self.get_mme_valid_objects_on_stage()
+        if self._window_scenemanager:
+            self._window_scenemanager.destroy()
+            self._window_scenemanager = None
         self._window_scenemanager = ui.Window(self.SCENE_SETTINGS_WINDOW_NAME, width=300, height=300)
         if self.active_objects_frame:
             self.active_objects_frame = None
@@ -999,11 +1039,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 ui.Spacer(height=6)
                 ui.Separator(height=6)
                 ui.Spacer(height=10)
-
-                with ui.CollapsableFrame("Models with variants",
-                                         height=ui.Pixel(10),
-                                         collapsed=True):
-                    self.render_active_objects_frame(valid_objects)
+                self.render_active_objects_frame(valid_objects)
                 ui.Spacer(height=10)
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
