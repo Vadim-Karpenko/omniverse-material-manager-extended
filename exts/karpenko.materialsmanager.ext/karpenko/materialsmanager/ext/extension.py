@@ -6,18 +6,17 @@ import omni.ext
 import omni.kit.commands
 import omni.ui as ui
 import omni.usd
-# from omni.kit.property.material.scripts.material_utils import get_binding_from_prims
-from omni.kit.stage.copypaste.prim_serializer import (get_prim_as_text,
-                                                      text_to_stage)
+from omni.kit.viewport.utility import get_active_viewport_window
 from pxr import Sdf
+
+from .prim_serializer import get_prim_as_text, text_to_stage
 from .style import materialsmanager_window_style as _style
 from .viewport_ui.widget_info_scene import WidgetInfoScene
-from omni.kit.viewport.utility import get_active_viewport_window
-
 
 class MaterialManagerExtended(omni.ext.IExt):
-    WINDOW_NAME = "Material Manager"
+    WINDOW_NAME = "Material Manager Extended"
     SCENE_SETTINGS_WINDOW_NAME = "Material Manager Settings"
+    MENU_PATH = "Window/" + WINDOW_NAME
 
     def on_startup(self, ext_id):
         print("[karpenko.materialsmanager.ext] MaterialManagerExtended startup")
@@ -51,10 +50,8 @@ class MaterialManagerExtended(omni.ext.IExt):
             "MovePrim",
         ]
         self.is_settings_window_open = False
-
-        omni.kit.commands.subscribe_on_change(self.on_change)
         self.render_default_layout()
-
+        omni.kit.commands.subscribe_on_change(self.on_change)
 
     def on_shutdown(self):
         """
@@ -183,7 +180,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.ignore_change = False
         if not self.ignore_settings_update:
             self.render_active_objects_frame()
-        self.render_variants_frame(looks, parent_prim)
+            self.render_variants_frame(looks, parent_prim)
 
     def get_meshes_from_prim(self, parent_prim):
         """
@@ -441,7 +438,9 @@ class MaterialManagerExtended(omni.ext.IExt):
         :return: None
         """
         if not self.stage:
-            return
+            self._usd_context = omni.usd.get_context()
+            self._selection = self._usd_context.get_selection()
+            self.stage = self._usd_context.get_stage()
         # Get history of commands
         current_history = reversed(omni.kit.undo.get_history().values())
         # Get the latest one
@@ -840,7 +839,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 if len(all_meshes) == 0:
                     ui.Label(
                         "No materials were found. Please make sure that the selected model is valid.",
-                        name="main_hint", 
+                        name="main_hint",
                         height=30
                     )
                 ui.Spacer(height=10)
@@ -869,22 +868,24 @@ class MaterialManagerExtended(omni.ext.IExt):
                 ui.Separator(height=6)
                 ui.Spacer(height=10)
 
-                with ui.CollapsableFrame("Active materials",
-                                         height=ui.Pixel(10),
-                                         collapsed=True):
-                    self.render_current_materials_frame(prim)
+                with ui.HStack(height=ui.Pixel(30)):
+                    ui.Spacer(width=10)
+                    ui.Label("Active materials", name="secondary_label")
+                with ui.ScrollingFrame(height=ui.Pixel(85)):
+                    with ui.VStack():
+                        self.render_current_materials_frame(prim)
 
                 ui.Spacer(height=10)
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
                     ui.Label("All variants", name="secondary_label")
-                with ui.ScrollingFrame(height=ui.Pixel(190)):
+                with ui.ScrollingFrame():
                     with ui.VStack():
                         self.render_variants_frame(looks, prim)
-                ui.Spacer(height=20)
+                ui.Spacer(height=10)
                 ui.Button(
                     "Add new variant",
-                    height=20,
+                    height=30,
                     clicked_fn=lambda: self.add_variant(looks, prim),
                     alignment=ui.Alignment.CENTER_BOTTOM,
                     tooltip="Create a new variant, based on the current look",
@@ -933,6 +934,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         if self._window:
             self._window.destroy()
             self._window = None
+        
         self._window = ui.Window(self.WINDOW_NAME, width=300, height=300)
         with self._window.frame:
             if not prim:
@@ -975,8 +977,8 @@ class MaterialManagerExtended(omni.ext.IExt):
             new_selected_paths=[str(prim_path), ],
             expand_in_stage=True
         )
-        ui.Workspace.show_window("Material Manager", True)
-        property_window = ui.Workspace.get_window("Material Manager")
+        ui.Workspace.show_window(self.WINDOW_NAME, True)
+        property_window = ui.Workspace.get_window(self.WINDOW_NAME)
         ui.WindowHandle.focus(property_window)
         self.ignore_settings_update = False
 
@@ -990,7 +992,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         if not self.active_objects_frame:
             self.active_objects_frame = ui.Frame(name="active_objects_frame", identifier="active_objects_frame")
         with self.active_objects_frame:
-            with ui.VGrid(column_count=objects_column_count, height=ui.Pixel(10)):
+            with ui.VGrid(column_count=objects_column_count):
                 material_counter = 1
                 # loop through all meshes
                 for prim in valid_objects:
@@ -1048,7 +1050,8 @@ class MaterialManagerExtended(omni.ext.IExt):
                     ui.Spacer(width=10)
                     ui.Label("Models with variants in your scene", name="secondary_label")
                     ui.Spacer(height=40)
-                self.render_active_objects_frame(valid_objects)
+                with ui.ScrollingFrame(height=ui.Pixel(100)):
+                    self.render_active_objects_frame(valid_objects)
                 ui.Spacer(height=10)
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
@@ -1062,7 +1065,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                             ui.Spacer(width=ui.Percent(5))
                             ui.Label("Enable viewport widget rendering:", width=ui.Percent(70))
                             ui.Spacer(width=ui.Percent(10))
-                            ui.CheckBox(checked=True, width=ui.Percent(15))
+                            ui.CheckBox(width=ui.Percent(15)).model.set_value(True)
                         ui.Spacer(height=10)
                         ui.Separator(height=6)
                         with ui.HStack(height=20):

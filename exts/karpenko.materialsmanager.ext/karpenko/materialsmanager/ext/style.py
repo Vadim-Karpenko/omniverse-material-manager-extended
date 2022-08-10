@@ -68,8 +68,12 @@ viewport_widget_style = {
     "Button.Label:disabled": {
         "color": cl("#a1a1a1")
     },
+    "Button:disabled": {
+        "background_color": cl("#4d4d4d"),
+    },
     "Button": {
         "alignment": ui.Alignment.BOTTOM,
+        "background_color": cl("#666666"),
     },
     "Label::name_label": {
         "alignment": ui.Alignment.CENTER_BOTTOM,
