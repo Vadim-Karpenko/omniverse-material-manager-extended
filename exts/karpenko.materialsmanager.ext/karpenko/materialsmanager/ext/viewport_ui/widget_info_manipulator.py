@@ -73,7 +73,7 @@ class _DragGesture(sc.DragGesture):
 
 
 class WidgetInfoManipulator(sc.Manipulator):
-    def __init__(self, all_variants, enable_variant, looks, parent_prim, **kwargs):
+    def __init__(self, all_variants, enable_variant, looks, parent_prim, check_visibility, **kwargs):
         super().__init__(**kwargs)
 
         self.destroy()
@@ -82,6 +82,7 @@ class WidgetInfoManipulator(sc.Manipulator):
         self.enable_variant = enable_variant
         self.looks = looks
         self.parent_prim = parent_prim
+        self.check_visibility = check_visibility
         self._radius = 2
         self._distance_to_top = 5
         self._thickness = 2
@@ -97,6 +98,10 @@ class WidgetInfoManipulator(sc.Manipulator):
         self._name_label = None
         self.prev_button = None
         self.next_button = None
+        self.all_variants = None
+        self.enable_variant = None
+        self.looks = None
+        self.parent_prim = None
 
     def _on_build_widgets(self):
         with ui.ZStack(height=70, style=viewport_widget_style):
@@ -146,16 +151,22 @@ class WidgetInfoManipulator(sc.Manipulator):
 
     # Update the slider
     def update_variant(self, value):
+        if not self._root or not self._root.visible or not self.looks or not self.parent_prim:
+            return
         if value == 0:
-            self.enable_variant(None, self.looks, self.parent_prim, ignore_changes=True)
+            self.enable_variant(None, self.looks, self.parent_prim)
         else:
             selected_variant = self.all_variants[value - 1]
+            if not selected_variant:
+                return
             prim_name = selected_variant.GetName()
-            self.enable_variant(prim_name, self.looks, self.parent_prim, ignore_changes=True)
+            self.enable_variant(prim_name, self.looks, self.parent_prim)
 
     def on_model_updated(self, _):
+        if not self._root:
+            return
         # if we don't have selection then show nothing
-        if not self.model or not self.model.get_item("name"):
+        if not self.model or not self.model.get_item("name") or not self.check_visibility():
             self._root.visible = False
             return
 
@@ -166,6 +177,9 @@ class WidgetInfoManipulator(sc.Manipulator):
 
         active_index = 0
         for variant_prim in self.all_variants:
+            if not variant_prim:
+                self._root.visible = False
+                return
             is_active_attr = variant_prim.GetAttribute("MMEisActive")
             if is_active_attr:
                 # Checking if the attribute is_active_attr is active.
@@ -174,11 +188,14 @@ class WidgetInfoManipulator(sc.Manipulator):
                     active_index = self.all_variants.index(variant_prim) + 1
                     break
         if self._slider_model:
+            if self._slider_subscription:
+                self._slider_subscription.unsubscribe()
             self._slider_subscription = None
             self._slider_model.as_int = active_index
             self._slider_subscription = self._slider_model.subscribe_value_changed_fn(
                 lambda m: self.update_variant(m.as_int)
             )
+            
 
         if self.prev_button and self.next_button:
             self.prev_button.enabled = active_index > 0

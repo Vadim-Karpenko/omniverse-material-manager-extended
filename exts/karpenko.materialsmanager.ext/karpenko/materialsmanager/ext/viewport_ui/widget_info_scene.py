@@ -18,7 +18,7 @@ from .widget_info_manipulator import WidgetInfoManipulator
 class WidgetInfoScene():
     """The Object Info Manupulator, placed into a Viewport"""
 
-    def __init__(self, viewport_window, ext_id: str, all_variants: list, enable_variant, looks, parent_prim):
+    def __init__(self, viewport_window, ext_id: str, all_variants: list, enable_variant, looks, parent_prim, check_visibility):
         self._scene_view = None
         self._viewport_window = viewport_window
 
@@ -28,12 +28,13 @@ class WidgetInfoScene():
             self._scene_view = sc.SceneView()
             # Add the manipulator into the SceneView's scene
             with self._scene_view.scene:
-                WidgetInfoManipulator(
+                self.info_manipulator = WidgetInfoManipulator(
                     model=WidgetInfoModel(),
                     all_variants=all_variants,
                     enable_variant=enable_variant,
                     looks=looks,
-                    parent_prim=parent_prim
+                    parent_prim=parent_prim,
+                    check_visibility=check_visibility,
                 )
 
             # Register the SceneView with the Viewport to get projection and view updates
@@ -43,6 +44,8 @@ class WidgetInfoScene():
         self.destroy()
 
     def destroy(self):
+        if self.info_manipulator:
+            self.info_manipulator.destroy()
         if self._scene_view:
             # Empty the SceneView of any elements it may have
             self._scene_view.scene.clear()
@@ -52,3 +55,4 @@ class WidgetInfoScene():
         # Remove our references to these objects
         self._viewport_window = None
         self._scene_view = None
+        self.info_manipulator = None

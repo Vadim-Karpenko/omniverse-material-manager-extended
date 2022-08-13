@@ -51,6 +51,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         ]
         self.is_settings_window_open = False
         self.render_default_layout()
+        self.set_enable_viewport_ui(True, create_only=True)
         omni.kit.commands.subscribe_on_change(self.on_change)
 
     def on_shutdown(self):
@@ -496,15 +497,11 @@ class MaterialManagerExtended(omni.ext.IExt):
                         carb.log_warn(f"Selected {prim} does not has any materials or has invalid type.")
                         return
                     if not prim:
-                        if self._widget_info_viewport:
-                            self._widget_info_viewport = None
                         self.render_scenelevel_frame()
                         return
                     if prim.GetPrimAtPath("Looks") and prim != self.latest_selected_prim:
                         # Save the type of the rendered window
                         self.current_ui = "object"
-                        if self._widget_info_viewport:
-                            self._widget_info_viewport = None
                         # Render new window for the selected prim
                         self.render_objectlevel_frame(prim)
                         if not self.ignore_settings_update:
@@ -513,8 +510,6 @@ class MaterialManagerExtended(omni.ext.IExt):
 
         if show_default_layout and self.current_ui != "default":
             self.current_ui = "default"
-            if self._widget_info_viewport:
-                self._widget_info_viewport = None
             self.render_scenelevel_frame()
             if not self.ignore_settings_update:
                 self.render_active_objects_frame()
@@ -632,6 +627,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         :param looks: the looks prim
         :param parent_prim: The prim that contains the variant sets
         """
+        print(folder_name, looks, parent_prim)
         if ignore_changes:
             self.ignore_change = True
         if folder_name is None:
@@ -650,7 +646,7 @@ class MaterialManagerExtended(omni.ext.IExt):
             )
         self.bind_materials(all_materials, None if folder_name is None else new_looks_folder_path)
         self.render_variants_frame(looks, parent_prim, ignore_widget=True)
-        self.render_current_materials_frame(parent_prim)
+        #self.render_current_materials_frame(parent_prim)
         if ignore_changes:
             self.ignore_change = False
 
@@ -736,8 +732,9 @@ class MaterialManagerExtended(omni.ext.IExt):
                                     else:
                                         label_text = "This variant is enabled.\nMake changes to the active materials from above to edit this variant.\nAll changes will be saved automatically."
                                         ui.Label(label_text, name="variant_label", height=40)
-        if not ignore_widget:
+        if not ignore_widget and self.get_enable_viewport_ui():
             if self._widget_info_viewport:
+                self._widget_info_viewport.destroy()
                 self._widget_info_viewport = None
             if len(all_variants) > 0:
                 # Get the active (which at startup is the default Viewport)
@@ -756,6 +753,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                     all_variants=all_variants,
                     enable_variant=self.enable_variant,
                     looks=looks,
+                    check_visibility=self.get_enable_viewport_ui,
                     parent_prim=parent_prim
                 )
 
@@ -815,12 +813,12 @@ class MaterialManagerExtended(omni.ext.IExt):
                                 name="material_counter",
                                 width=20 if materials_column_count == 1 else 50,
                             )
-                            ui.Image(
-                                height=24,
-                                width=24,
-                                name="material_preview",
-                                fill_policy=ui.FillPolicy.PRESERVE_ASPECT_FIT
-                            )
+                            # ui.Image(
+                            #     height=24,
+                            #     width=24,
+                            #     name="material_preview",
+                            #     fill_policy=ui.FillPolicy.PRESERVE_ASPECT_FIT
+                            # )
                             if materials_column_count == 1:
                                 ui.Spacer(height=10, width=10)
                             ui.Label(
@@ -982,6 +980,55 @@ class MaterialManagerExtended(omni.ext.IExt):
         ui.WindowHandle.focus(property_window)
         self.ignore_settings_update = False
 
+    def check_stage(self):
+        if not self.stage:
+            self._usd_context = omni.usd.get_context()
+            self._selection = self._usd_context.get_selection()
+            self.stage = self._usd_context.get_stage()
+
+    def set_enable_viewport_ui(self, value, create_only=False):
+        self.check_stage()
+        if not self.stage:
+            return
+        # Get DefaultPrim from Stage
+        default_prim = self.stage.GetDefaultPrim()
+        # Get attribute from DefaultPrim called "MMEEnableViewportUI"
+        attribute = default_prim.GetAttribute("MMEEnableViewportUI")
+        attribute_path = attribute.GetPath()
+        # check if attribute exists
+        if not attribute:
+            # if not, create it
+            omni.kit.commands.execute(
+                'CreateUsdAttributeOnPath',
+                attr_path=attribute_path,
+                attr_type=Sdf.ValueTypeNames.Bool,
+                custom=True,
+                attr_value=value,
+                variability=Sdf.VariabilityVarying
+            )
+        else:
+            if attribute.Get() == value or create_only:
+                return   
+            omni.kit.commands.execute(
+                'ChangeProperty',
+                prop_path=attribute_path,
+                value=value,
+                prev=not value,
+            )
+
+    def get_enable_viewport_ui(self):
+        self.check_stage()
+        if not self.stage:
+            return
+        # Get DefaultPrim from Stage
+        default_prim = self.stage.GetDefaultPrim()
+        # Get attribute from DefaultPrim called "MMEEnableViewportUI"
+        attribute = default_prim.GetAttribute("MMEEnableViewportUI")
+        if attribute:
+            return attribute.Get()
+        else:
+            return False
+
     def render_active_objects_frame(self, valid_objects=None):
         if not valid_objects:
             valid_objects = self.get_mme_valid_objects_on_stage()
@@ -1065,7 +1112,11 @@ class MaterialManagerExtended(omni.ext.IExt):
                             ui.Spacer(width=ui.Percent(5))
                             ui.Label("Enable viewport widget rendering:", width=ui.Percent(70))
                             ui.Spacer(width=ui.Percent(10))
-                            ui.CheckBox(width=ui.Percent(15)).model.set_value(True)
+                            self.enable_viewport_ui = ui.CheckBox(width=ui.Percent(15))
+                            self.enable_viewport_ui.model.set_value(self.get_enable_viewport_ui())
+                            self.enable_viewport_ui.model.add_value_changed_fn(
+                                lambda value: self.set_enable_viewport_ui(value.get_value_as_bool())
+                            )
                         ui.Spacer(height=10)
                         ui.Separator(height=6)
                         with ui.HStack(height=20):
@@ -1082,4 +1133,3 @@ class MaterialManagerExtended(omni.ext.IExt):
                             ui.Button("Remove", width=ui.Percent(15))
                         ui.Spacer(height=10)
                         ui.Separator(height=6)
-
