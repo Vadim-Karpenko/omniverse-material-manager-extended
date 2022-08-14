@@ -8,10 +8,12 @@ import omni.ui as ui
 import omni.usd
 from omni.kit.viewport.utility import get_active_viewport_window
 from pxr import Sdf
-
+import time
+import asyncio
 from .prim_serializer import get_prim_as_text, text_to_stage
 from .style import materialsmanager_window_style as _style
 from .viewport_ui.widget_info_scene import WidgetInfoScene
+
 
 class MaterialManagerExtended(omni.ext.IExt):
     WINDOW_NAME = "Material Manager Extended"
@@ -37,6 +39,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.current_ui = "default"
         self.is_settings_open = False
         self.stage = self._usd_context.get_stage()
+        
         self.allowed_commands = [
             "SelectPrimsCommand",
             "SelectPrims",
@@ -51,7 +54,8 @@ class MaterialManagerExtended(omni.ext.IExt):
         ]
         self.is_settings_window_open = False
         self.render_default_layout()
-        self.set_enable_viewport_ui(True, create_only=True)
+        if self.stage:
+            self._window.deferred_dock_in("Property")
         omni.kit.commands.subscribe_on_change(self.on_change)
 
     def on_shutdown(self):
@@ -517,7 +521,7 @@ class MaterialManagerExtended(omni.ext.IExt):
 
     def _get_looks(self, path):
         """
-        It gets the prim at the path, checks if it's a mesh, scope, or material, and if it is, it gets the parent prim. 
+        It gets the prim at the path, checks if it's a mesh, scope, or material, and if it is, it gets the parent prim.
         If it's an xform, it does nothing. If it's something else, it returns None
 
         :param path: The path to the prim you want to get the looks from
@@ -560,7 +564,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         """
         It gets the mesh data from the folder you pass as a parameter.
         It does decode it back from base64 and returns it as a dictionary.
-        
+
         :param looks_path: The path to the looks prim
         :param folder_name: The name of the folder that contains the mesh data
         :return: A list of dictionaries.
@@ -622,12 +626,11 @@ class MaterialManagerExtended(omni.ext.IExt):
         """
         It takes a folder name, a looks prim, and a parent prim, and then it activates the variant in the folder,
         binds the materials in the variant, and renders the variant and current materials frames
-        
+
         :param folder_name: The name of the folder that contains the materials you want to enable
         :param looks: the looks prim
         :param parent_prim: The prim that contains the variant sets
         """
-        print(folder_name, looks, parent_prim)
         if ignore_changes:
             self.ignore_change = True
         if folder_name is None:
@@ -646,14 +649,14 @@ class MaterialManagerExtended(omni.ext.IExt):
             )
         self.bind_materials(all_materials, None if folder_name is None else new_looks_folder_path)
         self.render_variants_frame(looks, parent_prim, ignore_widget=True)
-        #self.render_current_materials_frame(parent_prim)
+        self.render_current_materials_frame(parent_prim)
         if ignore_changes:
             self.ignore_change = False
 
     def select_material(self, associated_mesh):
         """
         It selects the material of the mesh that is currently selected in the viewport
-        
+
         :param associated_mesh: The path to the mesh you want to select the material for
         """
         if associated_mesh:
@@ -682,8 +685,8 @@ class MaterialManagerExtended(omni.ext.IExt):
                 if is_active_attr.Get():
                     is_variants_active = True
                     break
-        # Checking if the is_variants_active variable is True or False. If it is True, then the active_status variable is
-        # set to an empty string. If it is False, then the active_status variable is set to ' (Active)'.
+        # Checking if the is_variants_active variable is True or False. If it is True, then the active_status variable
+        # is set to an empty string. If it is False, then the active_status variable is set to ' (Active)'.
         active_status = '' if is_variants_active else ' (Active)'
 
         # Creating a frame in the UI.
@@ -712,9 +715,9 @@ class MaterialManagerExtended(omni.ext.IExt):
                 for variant_prim in all_variants:
                     # Creating a functions that will be called later in this loop.
                     prim_name = variant_prim.GetName()
-                    enable_variant_fn=lambda p_name=prim_name: self.enable_variant(p_name, looks, parent_prim)
+                    enable_variant_fn = lambda p_name=prim_name: self.enable_variant(p_name, looks, parent_prim)
                     prim_path = variant_prim.GetPath()
-                    delete_variant_fn=lambda p_path=prim_path: self.delete_variant(p_path, looks, parent_prim)
+                    delete_variant_fn = lambda p_path=prim_path: self.delete_variant(p_path, looks, parent_prim)
 
                     is_active_attr = variant_prim.GetAttribute("MMEisActive")
                     if is_active_attr:
@@ -773,6 +776,13 @@ class MaterialManagerExtended(omni.ext.IExt):
         return children
 
     def render_current_materials_frame(self, prim):
+        """
+        It loops through all meshes of the selected prim, gets all materials that are binded to the mesh, and then loops
+        through all materials and renders a button for each material
+
+        :param prim: The prim to get all children of
+        :return: The return value is a ui.Frame object.
+        """
         all_meshes = []
         all_mat_paths = []
         # Get all meshes
@@ -784,66 +794,82 @@ class MaterialManagerExtended(omni.ext.IExt):
                     all_mat_paths.append(original_material_prim_path)
         materials_quantity = len(list(dict.fromkeys(all_mat_paths)))
         processed_materials = []
+        scrolling_frame_height = ui.Percent(80)
         materials_column_count = 1
-        if materials_quantity > 6:
+        if materials_quantity < 2:
+            scrolling_frame_height = ui.Percent(50)
+        elif materials_quantity < 4:
+            scrolling_frame_height = ui.Percent(70)
+        elif materials_quantity > 6:
             materials_column_count = 2
+            scrolling_frame_height = ui.Percent(100)
+        
         if not self.materials_frame:
             self.materials_frame = ui.Frame(name="materials_frame", identifier="materials_frame")
+
         with self.materials_frame:
-            with ui.VGrid(column_count=materials_column_count, height=ui.Pixel(10)):
-                material_counter = 1
-                # loop through all meshes
-                for mesh_data in all_meshes:
-                    sl_mat_fn = lambda mesh_path=mesh_data["mesh"].GetPath(): self.select_material(mesh_path)
-                    # Get currently binded materials for the current mesh
-                    current_material_prims = mesh_data["material_paths"]
-                    # Loop through all binded materials paths
-                    for original_material_prim_path in current_material_prims:
-                        if original_material_prim_path in processed_materials:
-                            continue
-                        # Get the material prim from path
-                        original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
-                        if not original_material_prim:
-                            continue
-                        with ui.HStack():
-                            if materials_column_count == 1:
-                                ui.Spacer(height=10, width=10)
-                            ui.Label(
-                                f"{material_counter}.",
-                                name="material_counter",
-                                width=20 if materials_column_count == 1 else 50,
-                            )
-                            # ui.Image(
-                            #     height=24,
-                            #     width=24,
-                            #     name="material_preview",
-                            #     fill_policy=ui.FillPolicy.PRESERVE_ASPECT_FIT
-                            # )
-                            if materials_column_count == 1:
-                                ui.Spacer(height=10, width=10)
-                            ui.Label(
-                                original_material_prim.GetName(),
-                                elided_text=True,
-                                name="material_name"
-                            )
-                            ui.Button(
-                                "Select",
-                                name="variant_button",
-                                width=ui.Percent(30),
-                                clicked_fn=sl_mat_fn,
-                            )
-                        material_counter += 1
-                        processed_materials.append(original_material_prim_path)
-                if len(all_meshes) == 0:
-                    ui.Label(
-                        "No materials were found. Please make sure that the selected model is valid.",
-                        name="main_hint",
-                        height=30
-                    )
-                ui.Spacer(height=10)
+            with ui.ScrollingFrame(height=scrolling_frame_height):
+                with ui.VGrid(column_count=materials_column_count, height=ui.Pixel(10)):
+                    material_counter = 1
+                    # loop through all meshes
+                    for mesh_data in all_meshes:
+                        sl_mat_fn = lambda mesh_path=mesh_data["mesh"].GetPath(): self.select_material(mesh_path)
+                        # Get currently binded materials for the current mesh
+                        current_material_prims = mesh_data["material_paths"]
+                        # Loop through all binded materials paths
+                        for original_material_prim_path in current_material_prims:
+                            if original_material_prim_path in processed_materials:
+                                continue
+                            # Get the material prim from path
+                            original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
+                            if not original_material_prim:
+                                continue
+                            with ui.HStack():
+                                if materials_column_count == 1:
+                                    ui.Spacer(height=10, width=10)
+                                ui.Label(
+                                    f"{material_counter}.",
+                                    name="material_counter",
+                                    width=20 if materials_column_count == 1 else 50,
+                                )
+                                ui.Image(
+                                    height=24,
+                                    width=24,
+                                    name="material_preview",
+                                    fill_policy=ui.FillPolicy.PRESERVE_ASPECT_FIT
+                                )
+                                if materials_column_count == 1:
+                                    ui.Spacer(height=10, width=10)
+                                ui.Label(
+                                    original_material_prim.GetName(),
+                                    elided_text=True,
+                                    name="material_name"
+                                )
+                                ui.Button(
+                                    "Select",
+                                    name="variant_button",
+                                    width=ui.Percent(30),
+                                    clicked_fn=sl_mat_fn,
+                                )
+                            material_counter += 1
+                            processed_materials.append(original_material_prim_path)
+                    if len(all_mat_paths) == 0:
+                        ui.Label(
+                            "No materials were found. Please make sure that the selected model is valid.",
+                            name="main_hint",
+                            height=30
+                        )
+                    ui.Spacer(height=10)
         return self.materials_frame
 
     def render_objectlevel_frame(self, prim):
+        """
+        It renders a frame with a list of all the variants of a given object, and a list of all the materials of the
+        currently active variant.
+
+        :param prim: The prim that is currently selected in the viewport
+        :return: The main_frame is being returned.
+        """
         if not prim:
             return
         looks = prim.GetPrimAtPath("Looks")
@@ -869,11 +895,8 @@ class MaterialManagerExtended(omni.ext.IExt):
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
                     ui.Label("Active materials", name="secondary_label")
-                with ui.ScrollingFrame(height=ui.Pixel(85)):
-                    with ui.VStack():
-                        self.render_current_materials_frame(prim)
-
-                ui.Spacer(height=10)
+                
+                self.render_current_materials_frame(prim)
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
                     ui.Label("All variants", name="secondary_label")
@@ -890,9 +913,15 @@ class MaterialManagerExtended(omni.ext.IExt):
                 )
 
     def open_scene_settings(self):
+        """
+        If the settings window is not open, render the settings layout, set the settings window to open, and then
+        show the settings window. If the settings window is open, render the active objects frame, and then show
+        the settings window
+        """
         if not self.is_settings_open:
-            self.render_scene_settings_layout()
+            self.render_scene_settings_layout(dock_in=True)
             self.is_settings_open = True
+            
         else:
             self.render_active_objects_frame()
         ui.Workspace.show_window(self.SCENE_SETTINGS_WINDOW_NAME, True)
@@ -900,6 +929,10 @@ class MaterialManagerExtended(omni.ext.IExt):
         ui.WindowHandle.focus(scene_settings_window)
 
     def render_scenelevel_frame(self):
+        """
+        It creates a frame with a hint and a button to open the settings window.
+        :return: The main_frame is being returned.
+        """
         if not self.main_frame:
             self.main_frame = ui.Frame(name="main_frame", identifier="main_frame")
         with self.main_frame:
@@ -923,6 +956,11 @@ class MaterialManagerExtended(omni.ext.IExt):
         return self.main_frame
 
     def render_default_layout(self, prim=None):
+        """
+        It's a function that renders a default layout for the UI
+
+        :param prim: The prim that is selected in the viewport
+        """
         if self.main_frame:
             self.main_frame = None
         if self.variants_frame:
@@ -932,7 +970,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         if self._window:
             self._window.destroy()
             self._window = None
-        
+
         self._window = ui.Window(self.WINDOW_NAME, width=300, height=300)
         with self._window.frame:
             if not prim:
@@ -942,6 +980,12 @@ class MaterialManagerExtended(omni.ext.IExt):
 
     # SCENE SETTINGS
     def is_MME_exists(self, prim):
+        """
+        A recursive method that checks if the prim has a MME prim in its hierarchy
+
+        :param prim: The prim to check
+        :return: A boolean value.
+        """
         for child in prim.GetChildren():
             if child.GetName() == "Looks":
                 if child.GetPrimAtPath("MME"):
@@ -968,6 +1012,11 @@ class MaterialManagerExtended(omni.ext.IExt):
         return valid_objects
 
     def select_prim(self, prim_path):
+        """
+        It selects the prim at the given path, shows the property window, and focuses it
+
+        :param prim_path: The path to the prim you want to select
+        """
         self.ignore_settings_update = True
         omni.kit.commands.execute(
             'SelectPrimsCommand',
@@ -981,12 +1030,24 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.ignore_settings_update = False
 
     def check_stage(self):
+        """
+        It gets the current stage from the USD context
+        """
         if not self.stage:
             self._usd_context = omni.usd.get_context()
-            self._selection = self._usd_context.get_selection()
             self.stage = self._usd_context.get_stage()
 
+
     def set_enable_viewport_ui(self, value, create_only=False):
+        """
+        It checks if the attribute for showing viewport ui exists, under the DefaultPrim
+        if it doesn't, it creates it, but if it does, it changes the value instead
+
+        :param value: True or False
+        :param create_only: If True, the attribute will only be created if it doesn't exist,
+        defaults to False (optional)
+        :return: The return value is the value of the attribute.
+        """
         self.check_stage()
         if not self.stage:
             return
@@ -1008,7 +1069,7 @@ class MaterialManagerExtended(omni.ext.IExt):
             )
         else:
             if attribute.Get() == value or create_only:
-                return   
+                return
             omni.kit.commands.execute(
                 'ChangeProperty',
                 prop_path=attribute_path,
@@ -1017,6 +1078,10 @@ class MaterialManagerExtended(omni.ext.IExt):
             )
 
     def get_enable_viewport_ui(self):
+        """
+        Get the value of the "MMEEnableViewportUI" attribute from the DefaultPrim of the Stage.
+        :return: The value of the attribute.
+        """
         self.check_stage()
         if not self.stage:
             return
@@ -1027,9 +1092,15 @@ class MaterialManagerExtended(omni.ext.IExt):
         if attribute:
             return attribute.Get()
         else:
-            return False
+            return True  # Attribute was not created yet, so we return True as default
 
     def render_active_objects_frame(self, valid_objects=None):
+        """
+        It creates a UI frame with a list of buttons that select objects in the scene
+
+        :param valid_objects: a list of objects that have variants
+        :return: The active_objects_frame is being returned.
+        """
         if not valid_objects:
             valid_objects = self.get_mme_valid_objects_on_stage()
         objects_quantity = len(valid_objects)
@@ -1077,12 +1148,18 @@ class MaterialManagerExtended(omni.ext.IExt):
                 ui.Spacer(height=10)
         return self.active_objects_frame
 
-    def render_scene_settings_layout(self):
+    def render_scene_settings_layout(self, dock_in=False):
+        """
+        It renders a window with a list of objects in the scene that have variants and some settings.
+        Called only once, all interactive elements are updated through the frames.
+        """
         valid_objects = self.get_mme_valid_objects_on_stage()
         if self._window_scenemanager:
             self._window_scenemanager.destroy()
             self._window_scenemanager = None
         self._window_scenemanager = ui.Window(self.SCENE_SETTINGS_WINDOW_NAME, width=300, height=300)
+        if dock_in:
+            self._window_scenemanager.deferred_dock_in(self.WINDOW_NAME)
         if self.active_objects_frame:
             self.active_objects_frame = None
         with self._window_scenemanager.frame:
@@ -1102,7 +1179,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 ui.Spacer(height=10)
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
-                    ui.Label("Settings & Additional tools", name="secondary_label")
+                    ui.Label("Settings", name="secondary_label")
                 ui.Spacer(height=10)
                 ui.Separator(height=6)
                 with ui.ScrollingFrame():
@@ -1112,24 +1189,12 @@ class MaterialManagerExtended(omni.ext.IExt):
                             ui.Spacer(width=ui.Percent(5))
                             ui.Label("Enable viewport widget rendering:", width=ui.Percent(70))
                             ui.Spacer(width=ui.Percent(10))
+                            # Creating a checkbox and setting the value to the value of the get_enable_viewport_ui()
+                            # function.
                             self.enable_viewport_ui = ui.CheckBox(width=ui.Percent(15))
                             self.enable_viewport_ui.model.set_value(self.get_enable_viewport_ui())
                             self.enable_viewport_ui.model.add_value_changed_fn(
                                 lambda value: self.set_enable_viewport_ui(value.get_value_as_bool())
                             )
-                        ui.Spacer(height=10)
-                        ui.Separator(height=6)
-                        with ui.HStack(height=20):
-                            ui.Spacer(width=ui.Percent(5))
-                            ui.Label("Convert selected meshes into separate object:", width=ui.Percent(70))
-                            ui.Spacer(width=ui.Percent(10))
-                            ui.Button("Convert", width=ui.Percent(15))
-                        ui.Spacer(height=10)
-                        ui.Separator(height=6)
-                        with ui.HStack(height=20):
-                            ui.Spacer(width=ui.Percent(5))
-                            ui.Label("Remove unatached materials from the scene:", width=ui.Percent(70))
-                            ui.Spacer(width=ui.Percent(10))
-                            ui.Button("Remove", width=ui.Percent(15))
                         ui.Spacer(height=10)
                         ui.Separator(height=6)
