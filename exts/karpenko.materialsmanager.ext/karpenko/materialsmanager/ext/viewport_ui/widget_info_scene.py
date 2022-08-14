@@ -8,7 +8,6 @@
 #
 __all__ = ["WidgetInfoScene"]
 
-import omni.ui as ui
 from omni.ui import scene as sc
 
 from .widget_info_model import WidgetInfoModel
@@ -18,7 +17,14 @@ from .widget_info_manipulator import WidgetInfoManipulator
 class WidgetInfoScene():
     """The Object Info Manupulator, placed into a Viewport"""
 
-    def __init__(self, viewport_window, ext_id: str, all_variants: list, enable_variant, looks, parent_prim, check_visibility):
+    def __init__(self,
+                 viewport_window,
+                 ext_id: str,
+                 all_variants: list,
+                 enable_variant,
+                 looks,
+                 parent_prim,
+                 check_visibility):
         self._scene_view = None
         self._viewport_window = viewport_window
 
@@ -29,7 +35,7 @@ class WidgetInfoScene():
             # Add the manipulator into the SceneView's scene
             with self._scene_view.scene:
                 self.info_manipulator = WidgetInfoManipulator(
-                    model=WidgetInfoModel(),
+                    model=WidgetInfoModel(parent_prim=parent_prim),
                     all_variants=all_variants,
                     enable_variant=enable_variant,
                     looks=looks,

@@ -38,7 +38,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.current_ui = "default"
         self.is_settings_open = False
         self.stage = self._usd_context.get_stage()
-        
+
         self.allowed_commands = [
             "SelectPrimsCommand",
             "SelectPrims",
@@ -106,7 +106,6 @@ class MaterialManagerExtended(omni.ext.IExt):
         if property_win:
             self._window.deferred_dock_in("Property")
         self._setup_window_task = None
-
 
     def get_latest_version(self, looks):
         """
@@ -743,9 +742,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 for variant_prim in all_variants:
                     # Creating a functions that will be called later in this loop.
                     prim_name = variant_prim.GetName()
-                    enable_variant_fn = lambda p_name=prim_name: self.enable_variant(p_name, looks, parent_prim)
                     prim_path = variant_prim.GetPath()
-                    delete_variant_fn = lambda p_path=prim_path: self.delete_variant(p_path, looks, parent_prim)
 
                     is_active_attr = variant_prim.GetAttribute("MMEisActive")
                     if is_active_attr:
@@ -758,10 +755,25 @@ class MaterialManagerExtended(omni.ext.IExt):
                             with ui.VStack(height=ui.Pixel(10)):
                                 with ui.HStack():
                                     if not active_status:
-                                        ui.Button("Enable", name="variant_button", clicked_fn=enable_variant_fn)
-                                        ui.Button("Delete", name="variant_button", clicked_fn=delete_variant_fn)
+                                        ui.Button(
+                                            "Enable",
+                                            name="variant_button",
+                                            clicked_fn=lambda p_name=prim_name: self.enable_variant(
+                                                p_name,
+                                                looks,
+                                                parent_prim
+                                            ))
+                                        ui.Button(
+                                            "Delete",
+                                            name="variant_button",
+                                            clicked_fn=lambda p_path=prim_path: self.delete_variant(
+                                                p_path,
+                                                looks,
+                                                parent_prim
+                                            ))
                                     else:
-                                        label_text = "This variant is enabled.\nMake changes to the active materials from above to edit this variant.\nAll changes will be saved automatically."
+                                        label_text = "This variant is enabled.\nMake changes to the active materials" \
+                                            "from above to edit this variant.\nAll changes will be saved automatically."
                                         ui.Label(label_text, name="variant_label", height=40)
         if not ignore_widget and self.get_enable_viewport_ui():
             if self._widget_info_viewport:
@@ -831,7 +843,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         elif materials_quantity > 6:
             materials_column_count = 2
             scrolling_frame_height = ui.Percent(100)
-        
+
         if not self.materials_frame:
             self.materials_frame = ui.Frame(name="materials_frame", identifier="materials_frame")
 
@@ -841,7 +853,8 @@ class MaterialManagerExtended(omni.ext.IExt):
                     material_counter = 1
                     # loop through all meshes
                     for mesh_data in all_meshes:
-                        sl_mat_fn = lambda mesh_path=mesh_data["mesh"].GetPath(): self.select_material(mesh_path)
+                        def sl_mat_fn(mesh_path=mesh_data["mesh"].GetPath()):
+                            return self.select_material(mesh_path)
                         # Get currently binded materials for the current mesh
                         current_material_prims = mesh_data["material_paths"]
                         # Loop through all binded materials paths
@@ -923,7 +936,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
                     ui.Label("Active materials", name="secondary_label")
-                
+
                 self.render_current_materials_frame(prim)
                 with ui.HStack(height=ui.Pixel(30)):
                     ui.Spacer(width=10)
@@ -949,7 +962,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         if not self.is_settings_open:
             self.render_scene_settings_layout(dock_in=True)
             self.is_settings_open = True
-            
+
         else:
             self.render_active_objects_frame()
         ui.Workspace.show_window(self.SCENE_SETTINGS_WINDOW_NAME, True)
@@ -1061,10 +1074,9 @@ class MaterialManagerExtended(omni.ext.IExt):
         """
         It gets the current stage from the USD context
         """
-        if not self.stage:
+        if not hasattr(self, "stage") or not self.stage:
             self._usd_context = omni.usd.get_context()
             self.stage = self._usd_context.get_stage()
-
 
     def set_enable_viewport_ui(self, value, create_only=False):
         """
@@ -1144,7 +1156,6 @@ class MaterialManagerExtended(omni.ext.IExt):
                 for prim in valid_objects:
                     if not prim:
                         continue
-                    sl_obj_fn = lambda mesh_path=prim.GetPath(): self.select_prim(mesh_path)
                     with ui.HStack():
                         if objects_column_count == 1:
                             ui.Spacer(height=10, width=10)
@@ -1164,7 +1175,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                             "Select",
                             name="variant_button",
                             width=ui.Percent(30),
-                            clicked_fn=sl_obj_fn,
+                            clicked_fn=lambda mesh_path=prim.GetPath(): self.select_prim(mesh_path),
                         )
                         material_counter += 1
                 if objects_quantity == 0:

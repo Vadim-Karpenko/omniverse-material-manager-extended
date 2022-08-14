@@ -9,7 +9,6 @@
 __all__ = ["WidgetInfoModel"]
 
 from omni.ui import scene as sc
-from pxr import Gf
 from pxr import UsdGeom
 from pxr import Usd
 from pxr import UsdShade
@@ -42,7 +41,7 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
             super().__init__()
             self.value = [value]
 
-    def __init__(self):
+    def __init__(self, parent_prim):
         super().__init__()
 
         self.material_name = ""
@@ -51,7 +50,7 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
         # The distance from the bounding box to the position the model returns
         self._offset = 0
         # Current selection
-        self._prim = None
+        self._prim = parent_prim
         self._current_path = ""
         self._stage_listener = None
 
@@ -119,7 +118,7 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
             return
 
         prim_paths = usd_context.get_selection().get_selected_prim_paths()
-        if not prim_paths:
+        if not prim_paths or len(prim_paths) > 1:
             self._item_changed(self.position)
             # Revoke the Tf.Notice listener, we don't need to update anything
             if self._stage_listener:
@@ -127,10 +126,9 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
                 self._stage_listener = None
             return
 
-        prim = stage.GetPrimAtPath(prim_paths[0])
+        prim = self._prim
 
         if prim.IsA(UsdLux.Light):
-            print("Light")
             self.material_name = "I am a Light"
         elif prim.IsA(UsdGeom.Imageable):
             material, relationship = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
@@ -142,8 +140,7 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
             self._prim = None
             return
 
-        self._prim = prim
-        self._current_path = prim_paths[0]
+        self._current_path = str(self._prim.GetPath())
 
         # Add a Tf.Notice listener to update the position
         if not self._stage_listener:
@@ -154,14 +151,34 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
         # Position is changed
         self._item_changed(self.position)
 
-    def _get_position(self):
+    def find_child_mesh_with_position(self, prim):
+        """
+        A recursive method to find a child with a valid position.
+        """
+        if prim.IsA(UsdGeom.Mesh):
+            self._current_path = str(prim.GetPath())
+            prim_position = self._get_position(non_recursive=True)
+            if prim_position[0] == 0.0 or prim_position[1] == 0.0 or prim_position[2] == 0.0:
+                pass
+            else:
+                return prim
+        for child in prim.GetChildren():
+            result = self.find_child_mesh_with_position(child)
+            if result:
+                return result
+        return None
+
+    def _get_position(self, non_recursive=False):
         """Returns position of currently selected object"""
         stage = self._get_context().get_stage()
         if not stage or not self._current_path:
             return [0, 0, 0]
 
         # Get position directly from USD
-        prim = stage.GetPrimAtPath(self._current_path)
+        if non_recursive:
+            prim = stage.GetPrimAtPath(self._current_path)
+        else:
+            prim = self.find_child_mesh_with_position(stage.GetPrimAtPath(self._current_path))
         box_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), includedPurposes=[UsdGeom.Tokens.default_])
         bound = box_cache.ComputeWorldBound(prim)
         range = bound.ComputeAlignedBox()

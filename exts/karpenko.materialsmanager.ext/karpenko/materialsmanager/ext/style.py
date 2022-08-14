@@ -17,7 +17,6 @@ EXTENSION_FOLDER_PATH = pathlib.Path(
     omni.kit.app.get_app().get_extension_manager().get_extension_path_by_module(__name__)
 )
 
-print(f"{EXTENSION_FOLDER_PATH}/data/icons/material@3x.png")
 # The main style dict
 materialsmanager_window_style = {
     "Image::material_preview": {
@@ -25,7 +24,7 @@ materialsmanager_window_style = {
     },
     "Image::collapsable_opened": {"image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/opened.svg"},
     "Image::collapsable_closed": {
-        "image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/closed.svg", 
+        "image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/closed.svg",
         "color": cl("#a1a1a1")
     },
     "Label::main_label": {

@@ -1,17 +1,18 @@
-## Copyright (c) 2018-2021, NVIDIA CORPORATION.  All rights reserved.
-##
-## NVIDIA CORPORATION and its licensors retain all intellectual property
-## and proprietary rights in and to this software, related documentation
-## and any modifications thereto.  Any use, reproduction, disclosure or
-## distribution of this software and related documentation without an express
-## license agreement from NVIDIA CORPORATION is strictly prohibited.
-##
+# Copyright (c) 2018-2021, NVIDIA CORPORATION.  All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+#
 __all__ = ["WidgetInfoManipulator"]
 
 from omni.ui import color as cl
 from omni.ui import scene as sc
 import omni.ui as ui
 from ..style import viewport_widget_style
+
 
 class _ViewportLegacyDisableSelection:
     """Disables selection in the Viewport Legacy"""
@@ -90,7 +91,6 @@ class WidgetInfoManipulator(sc.Manipulator):
         self.prev_button = None
         self.next_button = None
 
-
     def destroy(self):
         self._root = None
         self._slider_subscription = None
@@ -118,7 +118,13 @@ class WidgetInfoManipulator(sc.Manipulator):
                 with ui.HStack():
                     ui.Spacer(width=10)
                     self.prev_button = ui.Button("Prev", width=100)
-                    self._name_label = ui.Label("", elided_text=True, name="name_label", height=0, alignment=ui.Alignment.CENTER_BOTTOM)
+                    self._name_label = ui.Label(
+                        "",
+                        elided_text=True,
+                        name="name_label",
+                        height=0,
+                        alignment=ui.Alignment.CENTER_BOTTOM
+                    )
                     self.next_button = ui.Button("Next", width=100)
                     ui.Spacer(width=10)
                 # setup some model, just for simple demonstration here
@@ -128,7 +134,7 @@ class WidgetInfoManipulator(sc.Manipulator):
                 with ui.HStack(style={"font_size": 26}):
                     ui.Spacer(width=10)
                     ui.IntSlider(self._slider_model, min=0, max=len(self.all_variants))
-                    
+
                     ui.Spacer(width=10)
                 ui.Spacer(height=8)
                 ui.Spacer()
@@ -177,9 +183,6 @@ class WidgetInfoManipulator(sc.Manipulator):
 
         active_index = 0
         for variant_prim in self.all_variants:
-            if not variant_prim:
-                self._root.visible = False
-                return
             is_active_attr = variant_prim.GetAttribute("MMEisActive")
             if is_active_attr:
                 # Checking if the attribute is_active_attr is active.
@@ -187,6 +190,7 @@ class WidgetInfoManipulator(sc.Manipulator):
                 if is_active:
                     active_index = self.all_variants.index(variant_prim) + 1
                     break
+
         if self._slider_model:
             if self._slider_subscription:
                 self._slider_subscription.unsubscribe()
@@ -195,7 +199,6 @@ class WidgetInfoManipulator(sc.Manipulator):
             self._slider_subscription = self._slider_model.subscribe_value_changed_fn(
                 lambda m: self.update_variant(m.as_int)
             )
-            
 
         if self.prev_button and self.next_button:
             self.prev_button.enabled = active_index > 0
