@@ -6,10 +6,9 @@ import omni.ext
 import omni.kit.commands
 import omni.ui as ui
 import omni.usd
+import asyncio
 from omni.kit.viewport.utility import get_active_viewport_window
 from pxr import Sdf
-import time
-import asyncio
 from .prim_serializer import get_prim_as_text, text_to_stage
 from .style import materialsmanager_window_style as _style
 from .viewport_ui.widget_info_scene import WidgetInfoScene
@@ -54,8 +53,12 @@ class MaterialManagerExtended(omni.ext.IExt):
         ]
         self.is_settings_window_open = False
         self.render_default_layout()
+        # show the window in the usual way if the stage is loaded
         if self.stage:
             self._window.deferred_dock_in("Property")
+        else:
+            # otherwise, show the window after the stage is loaded
+            self._setup_window_task = asyncio.ensure_future(self._dock_window())
         omni.kit.commands.subscribe_on_change(self.on_change)
 
     def on_shutdown(self):
@@ -79,6 +82,31 @@ class MaterialManagerExtended(omni.ext.IExt):
             self._widget_info_viewport.destroy()
             self._widget_info_viewport = None
         print("[karpenko.materialsmanager.ext] MaterialManagerExtended shutdown")
+
+    async def _dock_window(self):
+        """
+        It waits for the property window to appear, then docks the window to it
+        """
+        property_win = None
+
+        frames = 3
+        while frames > 0:
+            if not property_win:
+                property_win = ui.Workspace.get_window("Property")
+            if property_win:
+                break  # early out
+
+            frames = frames - 1
+            await omni.kit.app.get_app().next_update_async()
+
+        # Dock to property window after 5 frames. It's enough for window to appear.
+        for _ in range(5):
+            await omni.kit.app.get_app().next_update_async()
+
+        if property_win:
+            self._window.deferred_dock_in("Property")
+        self._setup_window_task = None
+
 
     def get_latest_version(self, looks):
         """
