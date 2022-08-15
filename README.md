@@ -1,5 +1,5 @@
 # Material Manager Extended
-
+![welcome](readme_media/welcome.jpg)
 ### About
 This extension will let you quickly toggle between different materials for your static objects in your scene.
 
