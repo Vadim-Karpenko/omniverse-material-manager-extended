@@ -1,7 +1,7 @@
 # Material Manager Extended
 ![welcome](readme_media/welcome.jpg)
 ### About
-This extension will let you quickly toggle between different materials for your static objects in your scene.
+This extension will let you quickly toggle between different materials for the static objects in your scene.
 
 ## Adding Extension
 
@@ -15,13 +15,13 @@ To add a this extension to your Omniverse app:
 
 ## Restrictions
 1. It may not work with vegetations and characters
-2. Your object need to have the following structure:
+2. Your object needs to have the following structure:
 
 
     ![Structure example](readme_media/structure_example.svg)
 
 
-    Most objects already has this structure, especially from **Nvidia Assets** tab, but in some custom cases you might need to change your object so it corresponds to the structure from above. Note: Looks folder might be even empty, it just tells the extension that this is a separate object.
+    Most objects already have this structure, especially from **Nvidia Assets** tab, but in some custom cases, you might need to change your object so it corresponds to the structure from above. Note: Looks folder might be even empty, it just tells the extension that this is a separate object.
     #### Example:
 
 
@@ -30,11 +30,11 @@ To add a this extension to your Omniverse app:
 
 ## How to use
 - Navigate to your viewport and select any static object on your scene
-- Once object is selected and is valid (see restrictions), the window will be changed into something simillar to this:
+- Once an object is selected and is valid (see restrictions), the window will be changed into something similar to this:
 
 
 ![step 1](readme_media/step1.jpg)
-- Click **Add new variant** at the bottom of the window. A new variant called _Look_1_ will appear in the list. You can create as many as you need, and if you need to rename your variant you can do it by renaming appropiate folder in **Looks/MME/your_variant**
+- Click **Add new variant** at the bottom of the window. A new variant called _Look_1_ will appear in the list. You can create as many as you need, and if you need to rename your variant you can do it by renaming appropriate folder in **Looks/MME/your_variant**
 
 
 ![step 2](readme_media/step2.jpg)
@@ -42,11 +42,15 @@ To add a this extension to your Omniverse app:
 
 
 ![step 3](readme_media/step3.jpg) ![step 4](readme_media/step4.jpg)
+
+
 - Now you can toggle between those variants
+
+
 ![step 5](readme_media/step5.jpg) ![step 6](readme_media/step6.jpg)
 
 
-- More complex Xform's are also supported. Which means that extension will toggle all the matterials for every mesh at once under this Xform.
+- More complex Xform's are also supported. This means that the extension will toggle all the materials for every mesh at once under this Xform.
 
 
 ![step 7](readme_media/step7.jpg)
