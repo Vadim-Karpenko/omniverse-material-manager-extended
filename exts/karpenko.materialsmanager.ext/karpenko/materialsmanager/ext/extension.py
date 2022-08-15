@@ -285,13 +285,14 @@ class MaterialManagerExtended(omni.ext.IExt):
                             )
                             break
                 else:
-                    # If there's no variant folder, then just bind passed material to the mesh
-                    omni.kit.commands.execute(
-                        'BindMaterial',
-                        material_path=mat_data["path"],
-                        prim_path=mat_data["mesh"],
-                        strength=['weakerThanDescendants']
-                    )
+                    if mat_data["mesh"] and mat_data["path"]:
+                        # If there's no variant folder, then just bind passed material to the mesh
+                        omni.kit.commands.execute(
+                            'BindMaterial',
+                            material_path=mat_data["path"],
+                            prim_path=mat_data["mesh"],
+                            strength=['weakerThanDescendants']
+                        )
 
     def deactivate_all_variants(self, looks):
         """

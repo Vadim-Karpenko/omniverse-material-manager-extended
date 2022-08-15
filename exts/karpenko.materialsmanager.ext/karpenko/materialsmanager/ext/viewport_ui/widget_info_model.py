@@ -118,7 +118,7 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
             return
 
         prim_paths = usd_context.get_selection().get_selected_prim_paths()
-        if not prim_paths or len(prim_paths) > 1:
+        if not prim_paths or len(prim_paths) > 1 or len(prim_paths) == 0 or str(self._prim.GetPath()) not in prim_paths[0]:
             self._item_changed(self.position)
             # Revoke the Tf.Notice listener, we don't need to update anything
             if self._stage_listener:
