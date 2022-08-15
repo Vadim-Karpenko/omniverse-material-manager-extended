@@ -42,7 +42,11 @@ To add a this extension to your Omniverse app:
 
 
 ![step 3](readme_media/step3.jpg) ![step 4](readme_media/step4.jpg)
+
+
 - Now you can toggle between those variants
+
+
 ![step 5](readme_media/step5.jpg) ![step 6](readme_media/step6.jpg)
 
 
