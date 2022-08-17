@@ -38,7 +38,7 @@ To add a this extension to your Omniverse app:
 
 
 ![step 2](readme_media/step2.jpg)
-- And you will see a viewport window on top of your model. Change material or replace it completely while your variant is active
+- You will see a viewport window on top of your model. Change material or replace it completely while your variant is active
 
 
 ![step 3](readme_media/step3.jpg) ![step 4](readme_media/step4.jpg)

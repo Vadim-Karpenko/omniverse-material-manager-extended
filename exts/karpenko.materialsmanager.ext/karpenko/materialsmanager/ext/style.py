@@ -22,11 +22,6 @@ materialsmanager_window_style = {
     "Image::material_preview": {
         "image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/material@3x.png",
     },
-    "Image::collapsable_opened": {"image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/opened.svg"},
-    "Image::collapsable_closed": {
-        "image_url": f"{EXTENSION_FOLDER_PATH}/data/icons/closed.svg",
-        "color": cl("#a1a1a1")
-    },
     "Label::main_label": {
         "alignment": ui.Alignment.LEFT_CENTER,
         "color": cl("#a1a1a1"),
