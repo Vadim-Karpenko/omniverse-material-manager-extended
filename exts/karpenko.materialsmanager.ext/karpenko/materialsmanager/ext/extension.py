@@ -432,22 +432,29 @@ class MaterialManagerExtended(omni.ext.IExt):
             
             previous_mats = []
             unique_mats = []
+            mesh_mats = {}
             if mesh_data:
                 for mat_data in mesh_data:
+                    material_prim = self.stage.GetPrimAtPath(new_material_path)
+                    mat_name = material_prim.GetName()
                     if mat_data["mesh"] == prim_path and mat_data["path"] != new_material_path:
                         carb.log_warn("Material changes detected. Updating material data...")
                         if mat_data["path"] in previous_mats:
                             unique_mats.append(mat_data["path"])
-                            mat_data["has_multiple_materials"] = True
+                            mesh_mats[mat_name] = True
+                        else:
+                            mesh_mats[mat_name] = False
                         previous_mats.append(mat_data["path"])
                         mat_data["path"] = new_material_path
                         mesh_data_to_update.append(mat_data)
+                    else:
+                        mesh_mats[mat_name] = False
 
                 if not is_original_active and folder_name:
                     active_folder_path = active_folder.GetPath()
                     # Copy material's prim as text
                     usd_code = get_prim_as_text(self.stage, [Sdf.Path(i["path"]) for i in mesh_data if i["path"] not in unique_mats])
-                    mats_to_delete = [i.GetPath() for i in active_folder.GetChildren() if str(i.GetPath()) not in unique_mats]
+                    mats_to_delete = [i.GetPath() for i in active_folder.GetChildren() if str(i.GetPath()) not in unique_mats and not mesh_mats.get(i.GetName(), False)]
                     if mats_to_delete:
                         omni.kit.commands.execute(
                             'DeletePrims',
