@@ -194,8 +194,11 @@ class MaterialManagerExtended(omni.ext.IExt):
             else:
                 new_looks_folder = looks.GetPrimAtPath(f"MME/{folder_name}")
             new_looks_folder_path = new_looks_folder.GetPath()
+            materials_to_copy = [mat_data["path"] for mat_data in all_materials]
+            # remove duplicates
+            materials_to_copy = list(set(materials_to_copy))
             # Copy material's prim as text
-            usd_code = get_prim_as_text(self.stage, [mat_data["path"] for mat_data in all_materials])
+            usd_code = get_prim_as_text(self.stage, materials_to_copy)
             # put the clone material into the scene
             text_to_stage(self.stage, usd_code, new_looks_folder_path)
 
@@ -247,14 +250,11 @@ class MaterialManagerExtended(omni.ext.IExt):
                 original_material_prim = self.stage.GetPrimAtPath(original_material_prim_path)
                 if not original_material_prim:
                     continue
-                # Check if was not already processed to avoid duplicates
-                if original_material_prim_path not in processed_materials:
-                    result.append({
-                        "name": original_material_prim.GetName(),
-                        "path": original_material_prim_path,
-                        "mesh": mesh_data.GetPath(),
-                    })
-                    processed_materials.append(original_material_prim_path)
+                result.append({
+                    "name": original_material_prim.GetName(),
+                    "path": original_material_prim_path,
+                    "mesh": mesh_data.GetPath(),
+                })
         return result
 
     def bind_materials(self, all_materials, variant_folder_path):
@@ -429,26 +429,30 @@ class MaterialManagerExtended(omni.ext.IExt):
                 folder_name = active_folder.GetName()
             mesh_data = self.get_mesh_data(looks_path, folder_name)
             mesh_data_to_update = []
+            
             previous_mats = []
+            unique_mats = []
             if mesh_data:
                 for mat_data in mesh_data:
                     if mat_data["mesh"] == prim_path and mat_data["path"] != new_material_path:
                         carb.log_warn("Material changes detected. Updating material data...")
+                        if mat_data["path"] in previous_mats:
+                            unique_mats.append(mat_data["path"])
+                            mat_data["has_multiple_materials"] = True
                         previous_mats.append(mat_data["path"])
                         mat_data["path"] = new_material_path
                         mesh_data_to_update.append(mat_data)
-                        break
-                else:
-                    return
 
                 if not is_original_active and folder_name:
                     active_folder_path = active_folder.GetPath()
                     # Copy material's prim as text
-                    usd_code = get_prim_as_text(self.stage, [Sdf.Path(i["path"]) for i in mesh_data])
-                    omni.kit.commands.execute(
-                        'DeletePrims',
-                        paths=[i.GetPath() for i in active_folder.GetChildren()]
-                    )
+                    usd_code = get_prim_as_text(self.stage, [Sdf.Path(i["path"]) for i in mesh_data if i["path"] not in unique_mats])
+                    mats_to_delete = [i.GetPath() for i in active_folder.GetChildren() if str(i.GetPath()) not in unique_mats]
+                    if mats_to_delete:
+                        omni.kit.commands.execute(
+                            'DeletePrims',
+                            paths=mats_to_delete,
+                        )
                     # put the clone material into the scene
                     text_to_stage(self.stage, usd_code, active_folder_path)
                     self.ignore_change = True
