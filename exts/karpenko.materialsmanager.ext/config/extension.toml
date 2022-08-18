@@ -7,7 +7,7 @@ title = "Material Manager"
 description="Allows you to quickly toggle between different materials"
 
 # Path (relative to the root) or content of readme markdown file for UI.
-readme  = "data/README.md"
+readme  = "docs/README.md"
 
 # URL of the extension source repository.
 repository = "https://github.com/Vadim-Karpenko/omniverse-material-manager-extended"
