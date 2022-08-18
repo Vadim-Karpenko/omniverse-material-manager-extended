@@ -210,7 +210,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 'ChangeProperty',
                 prop_path=is_active_attr_path,
                 value=True,
-                prev="",
+                prev=False,
             )
         self.ignore_change = False
         if not self.ignore_settings_update:
