@@ -3,7 +3,15 @@
 ### About
 This extension will let you quickly toggle between different materials for the static objects in your scene.
 
-## Adding Extension
+## Quick links
+
+* [Installation](#installation)
+* [Restrictions](#restrictions)
+* [How to use](#how-to-use)
+* [Linking with an Omniverse app](#linking-with-an-omniverse-app)
+* [Contributing](#contributing)
+
+## Installation
 
 To add a this extension to your Omniverse app:
 1. Go into: Extension Manager -> Gear Icon -> Extension Search Path
@@ -14,14 +22,14 @@ To add a this extension to your Omniverse app:
     ![start window](readme_media/start_window.jpg)
 
 ## Restrictions
-1. It may not work with vegetations and characters
+1. It will not work with the primitives (because they don't have the required structure by default, see below for more) and may not work with characters (would appreciate someone to test it). Vegetation can also cause problems, but most should work just fine.
 2. Your object needs to have the following structure:
 
 
     ![Structure example](readme_media/structure_example.svg)
 
 
-    Most objects already have this structure, especially from **Nvidia Assets** tab, but in some custom cases, you might need to change your object so it corresponds to the structure from above. Note: Looks folder might be even empty, it just tells the extension that this is a separate object.
+    Most objects already have this structure, especially from **Nvidia Assets** tab, but in some custom cases, you might need to change your object so it corresponds to the structure from above. Note: Looks folder can be empty, and your original textures located somewhere else, it just tells the extension that this is a separate object.
     #### Example:
 
 
