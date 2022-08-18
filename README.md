@@ -90,4 +90,4 @@ You can also just pass a path to create link to:
 
 
 ## Contributing
-Feel free to create a new issue if you run into any issues. Pull requests are welcomed.
+Feel free to create a new issue if you run into any problems. Pull requests are welcomed.
