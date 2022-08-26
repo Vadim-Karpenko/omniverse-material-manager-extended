@@ -160,13 +160,13 @@ class WidgetInfoManipulator(sc.Manipulator):
         if not self._root or not self._root.visible or not self.looks or not self.parent_prim:
             return
         if value == 0:
-            self.enable_variant(None, self.looks, self.parent_prim)
+            self.enable_variant(None, self.looks, self.parent_prim, ignore_select=True)
         else:
             selected_variant = self.all_variants[value - 1]
             if not selected_variant:
                 return
             prim_name = selected_variant.GetName()
-            self.enable_variant(prim_name, self.looks, self.parent_prim)
+            self.enable_variant(prim_name, self.looks, self.parent_prim, ignore_select=True)
 
     def on_model_updated(self, _):
         if not self._root:

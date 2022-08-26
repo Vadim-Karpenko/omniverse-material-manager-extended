@@ -37,6 +37,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         self._widget_info_viewport = None
         self.current_ui = "default"
         self.is_settings_open = False
+        self.ignore_next_select = False
         self.stage = self._usd_context.get_stage()
 
         self.allowed_commands = [
@@ -238,7 +239,6 @@ class MaterialManagerExtended(omni.ext.IExt):
         :param all_meshes: a list of all the meshes in the scene
         :return: A list of dictionaries.
         """
-        processed_materials = []
         result = []
         # loop through all meshes
         for mesh_data in all_meshes:
@@ -278,7 +278,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                         # If found material matches with the one in the all_materials list, bind it to the mesh
                         if var_mat.GetName() == str(mat_data["path"]).split("/")[-1]:
                             omni.kit.commands.execute(
-                                "BindMaterial",
+                                "BindMaterialCommand",
                                 prim_path=mat_data["mesh"],
                                 material_path=var_mat.GetPath(),
                                 strength=['weakerThanDescendants']
@@ -288,7 +288,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                     if mat_data["mesh"] and mat_data["path"]:
                         # If there's no variant folder, then just bind passed material to the mesh
                         omni.kit.commands.execute(
-                            'BindMaterial',
+                            'BindMaterialCommand',
                             material_path=mat_data["path"],
                             prim_path=mat_data["mesh"],
                             strength=['weakerThanDescendants']
@@ -429,7 +429,7 @@ class MaterialManagerExtended(omni.ext.IExt):
                 folder_name = active_folder.GetName()
             mesh_data = self.get_mesh_data(looks_path, folder_name)
             mesh_data_to_update = []
-            
+
             previous_mats = []
             unique_mats = []
             mesh_mats = {}
@@ -453,7 +453,10 @@ class MaterialManagerExtended(omni.ext.IExt):
                 if not is_original_active and folder_name:
                     active_folder_path = active_folder.GetPath()
                     # Copy material's prim as text
-                    usd_code = get_prim_as_text(self.stage, [Sdf.Path(i["path"]) for i in mesh_data if i["path"] not in unique_mats])
+                    usd_code = get_prim_as_text(
+                        self.stage,
+                        [Sdf.Path(i["path"]) for i in mesh_data if i["path"] not in unique_mats]
+                    )
                     mats_to_delete = [i.GetPath() for i in active_folder.GetChildren() if str(i.GetPath()) not in unique_mats and not mesh_mats.get(i.GetName(), False)]
                     if mats_to_delete:
                         omni.kit.commands.execute(
@@ -492,6 +495,12 @@ class MaterialManagerExtended(omni.ext.IExt):
 
         if latest_action.name == "ChangePrimVarCommand" and latest_action.level == 1:
             latest_action = next(current_history)
+
+        if self.ignore_next_select and latest_action.name == "SelectPrimsCommand":
+            self.ignore_next_select = False
+            omni.kit.commands.execute('Undo')
+        else:
+            self.ignore_next_select = False
 
         if latest_action.name not in self.allowed_commands:
             return
@@ -661,7 +670,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         omni.kit.commands.execute('DeletePrims', paths=[prim_path, ])
         self.render_variants_frame(looks, parent_prim)
 
-    def enable_variant(self, folder_name, looks, parent_prim, ignore_changes=True):
+    def enable_variant(self, folder_name, looks, parent_prim, ignore_changes=True, ignore_select=False):
         """
         It takes a folder name, a looks prim, and a parent prim, and then it activates the variant in the folder,
         binds the materials in the variant, and renders the variant and current materials frames
@@ -687,6 +696,8 @@ class MaterialManagerExtended(omni.ext.IExt):
                 prev=False,
             )
         self.bind_materials(all_materials, None if folder_name is None else new_looks_folder_path)
+        if ignore_select:
+            self.ignore_next_select = True
         self.render_variants_frame(looks, parent_prim, ignore_widget=True)
         self.render_current_materials_frame(parent_prim)
         if ignore_changes:
