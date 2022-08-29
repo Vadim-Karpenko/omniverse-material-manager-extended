@@ -12,18 +12,24 @@ This extension will let you quickly toggle between different materials for the s
 * [Contributing](#contributing)
 
 ## Installation
-
 To add a this extension to your Omniverse app:
-1. Go into: Extension Manager -> Gear Icon -> Extension Search Path
+### From Community tab
+1. Go to **Extension Manager** (Window - Extensions) — Community tab
+2. Search for **Material Manager** extension and enable it
+### Manual
+1. Go to **Extension Manager** (Window - Extensions) — **Gear Icon** — **Extension Search Path**
 2. Add this as a search path: `git://github.com/Vadim-Karpenko/omniverse-material-manager-extended?branch=main&dir=exts`
-3. A new window should appear alongside the Property tab:
+3. Search for **Material Manager** extension and enable it
+
+A new window will appear alongside the Property tab:
 
 
     ![start window](readme_media/start_window.jpg)
 
 ## Restrictions
-1. It will not work with the primitives (because they don't have the required structure by default, see below for more) and may not work with characters (would appreciate someone to test it). Vegetation can also cause problems, but most should work just fine.
-2. Your object needs to have the following structure:
+- Some vegetation can cause problems, but most should work just fine. 
+- Currently has no support of instanced meshes (they usually greyed out and aren't accessible).
+- Your object needs to have the following structure:
 
 
     ![Structure example](readme_media/structure_example.svg)
@@ -34,7 +40,7 @@ To add a this extension to your Omniverse app:
 
 
     ![Structure example 2](readme_media/structure_example2.jpg)
-
+- It will not work with the primitives, because it does not corresponds to the structure from above. 
 
 ## How to use
 - Navigate to your viewport and select any static object on your scene
