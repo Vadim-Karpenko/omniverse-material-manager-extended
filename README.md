@@ -24,7 +24,7 @@ To add a this extension to your Omniverse app:
 A new window will appear alongside the Property tab:
 
 
-    ![start window](readme_media/start_window.jpg)
+![start window](readme_media/start_window.jpg)
 
 ## Restrictions
 - Some vegetation can cause problems, but most should work just fine. 
