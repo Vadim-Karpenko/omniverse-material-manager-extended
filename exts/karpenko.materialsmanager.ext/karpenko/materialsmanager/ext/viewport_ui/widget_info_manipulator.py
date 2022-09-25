@@ -145,7 +145,7 @@ class WidgetInfoManipulator(sc.Manipulator):
         self._widget.gestures += [_DragGesture()]
 
     def on_build(self):
-        """Called when the model is chenged and rebuilds the whole slider"""
+        """Called when the model is changed and rebuilds the whole slider"""
         self._root = sc.Transform(visible=False)
         with self._root:
             with sc.Transform(scale_to=sc.Space.SCREEN):
@@ -172,7 +172,7 @@ class WidgetInfoManipulator(sc.Manipulator):
         if not self._root:
             return
         # if we don't have selection then show nothing
-        if not self.model or not self.model.get_item("name") or not self.check_visibility():
+        if not self.model or not self.model.get_item("name") or not self.check_visibility("MMEEnableViewportUI"):
             self._root.visible = False
             return
 

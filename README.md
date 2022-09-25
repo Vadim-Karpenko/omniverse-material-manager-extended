@@ -10,6 +10,7 @@ This extension will let you quickly toggle between different materials for the s
 * [How to use](#how-to-use)
 * [Linking with an Omniverse app](#linking-with-an-omniverse-app)
 * [Contributing](#contributing)
+* [Changelog](CHANGELOG.md)
 
 ## Installation
 
@@ -62,7 +63,6 @@ To add a this extension to your Omniverse app:
 
 
 ![step 7](readme_media/step7.jpg)
-
 
 ## Linking with an Omniverse app
 

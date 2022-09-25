@@ -35,7 +35,7 @@ class WidgetInfoScene():
             # Add the manipulator into the SceneView's scene
             with self._scene_view.scene:
                 self.info_manipulator = WidgetInfoManipulator(
-                    model=WidgetInfoModel(parent_prim=parent_prim),
+                    model=WidgetInfoModel(parent_prim=parent_prim, get_setting=check_visibility),
                     all_variants=all_variants,
                     enable_variant=enable_variant,
                     looks=looks,

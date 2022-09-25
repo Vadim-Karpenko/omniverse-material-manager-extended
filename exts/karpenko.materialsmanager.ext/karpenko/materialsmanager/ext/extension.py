@@ -1,14 +1,19 @@
+import asyncio
 import base64
 import json
+import math
 
 import carb
 import omni.ext
 import omni.kit.commands
+import omni.kit.viewport_legacy
 import omni.ui as ui
 import omni.usd
-import asyncio
-from omni.kit.viewport.utility import get_active_viewport_window
+from omni.kit.viewport.utility import (get_active_viewport_camera_path,
+                                       get_active_viewport_window,
+                                       get_ui_position_for_prim)
 from pxr import Sdf
+
 from .prim_serializer import get_prim_as_text, text_to_stage
 from .style import materialsmanager_window_style as _style
 from .viewport_ui.widget_info_scene import WidgetInfoScene
@@ -33,11 +38,14 @@ class MaterialManagerExtended(omni.ext.IExt):
         self.main_frame = None
         self.ignore_change = False
         self.ignore_settings_update = False
+        self.roaming_timer = None
         self.ext_id = ext_id
         self._widget_info_viewport = None
         self.current_ui = "default"
         self.is_settings_open = False
         self.ignore_next_select = False
+        self.last_roaming_prim = None
+        self.reticle = None
         self.stage = self._usd_context.get_stage()
 
         self.allowed_commands = [
@@ -61,12 +69,15 @@ class MaterialManagerExtended(omni.ext.IExt):
             # otherwise, show the window after the stage is loaded
             self._setup_window_task = asyncio.ensure_future(self._dock_window())
         omni.kit.commands.subscribe_on_change(self.on_change)
+        self.roaming_timer = asyncio.ensure_future(self.enable_roaming_timer())
 
     def on_shutdown(self):
         """
         This function is called when the addon is disabled
         """
         omni.kit.commands.unsubscribe_on_change(self.on_change)
+        if self.roaming_timer:
+            self.disable_roaming_timer()
         # Deregister the function that shows the window from omni.ui
         ui.Workspace.set_show_window_fn(self.WINDOW_NAME, None)
         if self._window:
@@ -82,6 +93,9 @@ class MaterialManagerExtended(omni.ext.IExt):
         if self._widget_info_viewport:
             self._widget_info_viewport.destroy()
             self._widget_info_viewport = None
+        if self.reticle:
+            self.reticle.destroy()
+            self.reticle = None
         print("[karpenko.materialsmanager.ext] MaterialManagerExtended shutdown")
 
     async def _dock_window(self):
@@ -107,6 +121,14 @@ class MaterialManagerExtended(omni.ext.IExt):
         if property_win:
             self._window.deferred_dock_in("Property")
         self._setup_window_task = None
+
+    async def enable_roaming_timer(self):
+        while True:
+            await asyncio.sleep(1.0)
+            self.get_closest_mme_object()
+
+    def disable_roaming_timer(self):
+        self.roaming_timer = None
 
     def get_latest_version(self, looks):
         """
@@ -491,7 +513,10 @@ class MaterialManagerExtended(omni.ext.IExt):
         # Get history of commands
         current_history = reversed(omni.kit.undo.get_history().values())
         # Get the latest one
-        latest_action = next(current_history)
+        try:
+            latest_action = next(current_history)
+        except StopIteration:
+            return
 
         if latest_action.name == "ChangePrimVarCommand" and latest_action.level == 1:
             latest_action = next(current_history)
@@ -798,12 +823,12 @@ class MaterialManagerExtended(omni.ext.IExt):
                                         label_text = "This variant is enabled.\nMake changes to the active materials" \
                                             "from above to edit this variant.\nAll changes will be saved automatically."
                                         ui.Label(label_text, name="variant_label", height=40)
-        if not ignore_widget and self.get_enable_viewport_ui():
-            if self._widget_info_viewport:
+        if not ignore_widget and self.get_setting("MMEEnableViewportUI"):
+            if hasattr(self, "_widget_info_viewport") and self._widget_info_viewport:
                 self._widget_info_viewport.destroy()
                 self._widget_info_viewport = None
             if len(all_variants) > 0:
-                # Get the active (which at startup is the default Viewport)
+                # Get the active viewport (which at startup is the default Viewport)
                 viewport_window = get_active_viewport_window()
 
                 # Issue an error if there is no Viewport
@@ -812,18 +837,72 @@ class MaterialManagerExtended(omni.ext.IExt):
                     self._widget_info_viewport = None
                     return
 
-                # Build out the scene
-                self._widget_info_viewport = WidgetInfoScene(
-                    viewport_window,
-                    self.ext_id,
-                    all_variants=all_variants,
-                    enable_variant=self.enable_variant,
-                    looks=looks,
-                    check_visibility=self.get_enable_viewport_ui,
-                    parent_prim=parent_prim
-                )
-
+                if hasattr(self, "ext_id"):
+                    print("ext_id", self.ext_id)
+                    # Build out the scene
+                    self._widget_info_viewport = WidgetInfoScene(
+                        viewport_window,
+                        self.ext_id,
+                        all_variants=all_variants,
+                        enable_variant=self.enable_variant,
+                        looks=looks,
+                        check_visibility=self.get_setting,
+                        parent_prim=parent_prim
+                    )
         return self.variants_frame_original, self.variants_frame
+
+    def get_closest_mme_object(self):
+        """
+        If the user has enabled the roaming mode, then we get the camera position and the list of all visible MME objects.
+        We then find the closest MME object to the camera and render the widget for that object.
+        :return: The closest prim to the currently active camera.
+        """
+        if not self.get_setting("MMEEnableRoamingMode", False):
+            return False
+        camera_prim = self.stage.GetPrimAtPath(get_active_viewport_camera_path())
+        camera_position = camera_prim.GetAttribute("xformOp:translate").Get()
+        window = get_active_viewport_window()
+        mme_objects = self.get_mme_valid_objects_on_stage()
+        all_visible_prims = []
+        for prim in mme_objects:
+            ui_position, is_visible = get_ui_position_for_prim(window, prim.GetPath())
+            if is_visible:
+                all_visible_prims.append(prim)
+        
+        closest_prim = None
+        closest_distance = 0
+        for prim in all_visible_prims:
+            prim_position = prim.GetAttribute("xformOp:translate").Get()
+            distance = math.sqrt(
+                (prim_position[0] - camera_position[0]) ** 2 + (prim_position[1] - camera_position[1]) ** 2 + (prim_position[2] - camera_position[2]) ** 2
+            )
+            if closest_distance > self.get_setting("MMEMaxVisibleDistance", 500):
+                closest_prim = None
+                continue
+            if not closest_prim:
+                closest_prim = prim
+                closest_distance = distance
+            elif distance < closest_distance:
+                closest_prim = prim
+                closest_distance = distance
+
+        if not hasattr(self, "last_roaming_prim"):
+            self.last_roaming_prim = closest_prim
+            return
+
+        if closest_distance > 0 and closest_prim and self.last_roaming_prim != closest_prim:
+            self.last_roaming_prim = closest_prim
+            self.render_objectlevel_frame(closest_prim)
+            if hasattr(self, "_widget_info_viewport") and self._widget_info_viewport:
+                self._widget_info_viewport.info_manipulator.model._on_kit_selection_changed()
+        elif not closest_prim:
+            if hasattr(self, "latest_selected_prim") and self.latest_selected_prim:
+                return
+            self.last_roaming_prim = None
+            self.render_scenelevel_frame()
+            if hasattr(self, "_widget_info_viewport") and self._widget_info_viewport:
+                self._widget_info_viewport.destroy()
+        return closest_prim
 
     def get_all_children_of_prim(self, prim):
         """
@@ -938,14 +1017,14 @@ class MaterialManagerExtended(omni.ext.IExt):
             return
         looks = prim.GetPrimAtPath("Looks")
 
-        if self.variants_frame:
+        if not hasattr(self, "variants_frame") or self.variants_frame:
             self.variants_frame = None
-        if self.variants_frame_original:
+        if not hasattr(self, "variants_frame_original") or self.variants_frame_original:
             self.variants_frame_original = None
-        if self.materials_frame:
+        if not hasattr(self, "materials_frame") or self.materials_frame:
             self.materials_frame = None
 
-        if not self.main_frame:
+        if not hasattr(self, "main_frame") or not self.main_frame:
             self.main_frame = ui.Frame(name="main_frame", identifier="main_frame")
         with self.main_frame:
             with ui.VStack(style=_style):
@@ -997,7 +1076,7 @@ class MaterialManagerExtended(omni.ext.IExt):
         It creates a frame with a hint and a button to open the settings window.
         :return: The main_frame is being returned.
         """
-        if not self.main_frame:
+        if not hasattr(self, "main_frame") or not self.main_frame:
             self.main_frame = ui.Frame(name="main_frame", identifier="main_frame")
         with self.main_frame:
             with ui.VStack(style=_style):
@@ -1101,7 +1180,7 @@ class MaterialManagerExtended(omni.ext.IExt):
             self._usd_context = omni.usd.get_context()
             self.stage = self._usd_context.get_stage()
 
-    def set_enable_viewport_ui(self, value, create_only=False):
+    def set_setting(self, value, attribute_name, create_only=False):
         """
         It checks if the attribute for showing viewport ui exists, under the DefaultPrim
         if it doesn't, it creates it, but if it does, it changes the value instead
@@ -1116,8 +1195,8 @@ class MaterialManagerExtended(omni.ext.IExt):
             return
         # Get DefaultPrim from Stage
         default_prim = self.stage.GetDefaultPrim()
-        # Get attribute from DefaultPrim called "MMEEnableViewportUI"
-        attribute = default_prim.GetAttribute("MMEEnableViewportUI")
+        # Get attribute from DefaultPrim if it exists
+        attribute = default_prim.GetAttribute(attribute_name)
         attribute_path = attribute.GetPath()
         # check if attribute exists
         if not attribute:
@@ -1140,9 +1219,12 @@ class MaterialManagerExtended(omni.ext.IExt):
                 prev=not value,
             )
 
-    def get_enable_viewport_ui(self):
+    def get_setting(self, attribute_name, default_value=True):
         """
-        Get the value of the "MMEEnableViewportUI" attribute from the DefaultPrim of the Stage.
+        It gets the value of an attribute from the default prim of the stage
+        
+        :param attribute_name: The name of the attribute you want to get
+        :param default_value: The value to return if the attribute doesn't exist, defaults to True (optional)
         :return: The value of the attribute.
         """
         self.check_stage()
@@ -1150,12 +1232,12 @@ class MaterialManagerExtended(omni.ext.IExt):
             return
         # Get DefaultPrim from Stage
         default_prim = self.stage.GetDefaultPrim()
-        # Get attribute from DefaultPrim called "MMEEnableViewportUI"
-        attribute = default_prim.GetAttribute("MMEEnableViewportUI")
+        # Get attribute from DefaultPrim called
+        attribute = default_prim.GetAttribute(attribute_name)
         if attribute:
             return attribute.Get()
         else:
-            return True  # Attribute was not created yet, so we return True as default
+            return default_value  # Attribute was not created yet, so we return default_value
 
     def render_active_objects_frame(self, valid_objects=None):
         """
@@ -1251,12 +1333,25 @@ class MaterialManagerExtended(omni.ext.IExt):
                             ui.Spacer(width=ui.Percent(5))
                             ui.Label("Enable viewport widget rendering:", width=ui.Percent(70))
                             ui.Spacer(width=ui.Percent(10))
-                            # Creating a checkbox and setting the value to the value of the get_enable_viewport_ui()
+                            # Creating a checkbox and setting the value to the value of the get_setting()
                             # function.
                             self.enable_viewport_ui = ui.CheckBox(width=ui.Percent(15))
-                            self.enable_viewport_ui.model.set_value(self.get_enable_viewport_ui())
+                            self.enable_viewport_ui.model.set_value(self.get_setting("MMEEnableViewportUI"))
                             self.enable_viewport_ui.model.add_value_changed_fn(
-                                lambda value: self.set_enable_viewport_ui(value.get_value_as_bool())
+                                lambda value: self.set_setting(value.get_value_as_bool(), "MMEEnableViewportUI")
                             )
                         ui.Spacer(height=10)
                         ui.Separator(height=6)
+                        with ui.HStack(height=20):
+                            # Window will appear if you look at the object in the viewport, instead of clicking on it
+                            ui.Spacer(width=ui.Percent(5))
+                            ui.Label("Roaming mode:", width=ui.Percent(70))
+                            ui.Spacer(width=ui.Percent(10))
+                            self.enable_roaming_mode = ui.CheckBox(width=ui.Percent(15))
+                            self.enable_roaming_mode.model.set_value(self.get_setting("MMEEnableRoamingMode", False))
+                            self.enable_roaming_mode.model.add_value_changed_fn(
+                                lambda value: self.set_setting(value.get_value_as_bool(), "MMEEnableRoamingMode")
+                            )
+                        ui.Spacer(height=10)
+                        ui.Separator(height=6)
+                    

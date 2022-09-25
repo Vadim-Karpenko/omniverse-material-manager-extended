@@ -41,7 +41,7 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
             super().__init__()
             self.value = [value]
 
-    def __init__(self, parent_prim):
+    def __init__(self, parent_prim, get_setting):
         super().__init__()
 
         self.material_name = ""
@@ -51,6 +51,7 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
         self._offset = 0
         # Current selection
         self._prim = parent_prim
+        self.get_setting = get_setting
         self._current_path = ""
         self._stage_listener = None
 
@@ -70,6 +71,9 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
 
     def _notice_changed(self, notice, stage):
         """Called by Tf.Notice"""
+        if self.get_setting("MMEEnableRoamingMode", False):
+            self._item_changed(self.position)
+            return
         for p in notice.GetChangedInfoOnlyPaths():
             if self._current_path in str(p.GetPrimPath()):
                 self._item_changed(self.position)
@@ -117,14 +121,15 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
         if not stage:
             return
 
-        prim_paths = usd_context.get_selection().get_selected_prim_paths()
-        if not prim_paths or len(prim_paths) > 1 or len(prim_paths) == 0 or str(self._prim.GetPath()) not in prim_paths[0]:
-            self._item_changed(self.position)
-            # Revoke the Tf.Notice listener, we don't need to update anything
-            if self._stage_listener:
-                self._stage_listener.Revoke()
-                self._stage_listener = None
-            return
+        if not self.get_setting("MMEEnableRoamingMode", False):
+            prim_paths = usd_context.get_selection().get_selected_prim_paths()
+            if not prim_paths or len(prim_paths) > 1 or len(prim_paths) == 0 or str(self._prim.GetPath()) not in prim_paths[0]:
+                self._item_changed(self.position)
+                # Revoke the Tf.Notice listener, we don't need to update anything
+                if self._stage_listener:
+                    self._stage_listener.Revoke()
+                    self._stage_listener = None
+                return
 
         prim = self._prim
 
