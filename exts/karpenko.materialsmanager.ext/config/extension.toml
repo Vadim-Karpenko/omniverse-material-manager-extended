@@ -1,6 +1,6 @@
 [package]
 # Semantic Versionning is used: https://semver.org/
-version = "1.1.0"
+version = "1.1.1"
 
 # The title and description fields are primarily for displaying extension info in UI
 title = "Material Manager"
@@ -20,9 +20,9 @@ keywords = ["material", "materials", "manager", ]
 
 authors = ["Vadim Karpenko"]
 
-preview_image = "data/preview_image.jpg"
+preview_image = "data/preview_image.png"
 
-icon = "data/icons/icon.jpg"
+icon = "data/icons/icon.png"
 
 
 # Use omni.ui to build simple UI

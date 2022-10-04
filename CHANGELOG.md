@@ -1,7 +1,13 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
- 
+## [1.1.1] - 2022-10-04
+
+### Fixed
+
+Convert icon and preview_image to png format
+
+
 ## [1.1.0] - 2022-09-26
   
 
@@ -21,6 +27,6 @@ Note that this can cause difficulty when creating new objects with variants, so 
  
 - Support of a new version of viewport (Next viewport).
 
-## [1.0.1] - 2022-08-18
+## [1.0.0] - 2022-08-18
  
 Initial release.
