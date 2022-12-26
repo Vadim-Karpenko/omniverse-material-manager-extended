@@ -6,7 +6,6 @@ import math
 import carb
 import omni.ext
 import omni.kit.commands
-import omni.kit.viewport_legacy
 import omni.ui as ui
 import omni.usd
 from omni.kit.viewport.utility import (get_active_viewport_camera_path,
