@@ -132,11 +132,10 @@ class WidgetInfoManipulator(sc.Manipulator):
 
                 ui.Spacer(height=5)
                 with ui.HStack(style={"font_size": 26}):
-                    ui.Spacer(width=10)
+                    ui.Spacer(width=5)
                     ui.IntSlider(self._slider_model, min=0, max=len(self.all_variants))
-
-                    ui.Spacer(width=10)
-                ui.Spacer(height=8)
+                    ui.Spacer(width=5)
+                ui.Spacer(height=24)
                 ui.Spacer()
 
         self.on_model_updated(None)
