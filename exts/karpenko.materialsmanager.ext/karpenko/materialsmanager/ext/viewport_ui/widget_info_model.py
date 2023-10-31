@@ -133,7 +133,7 @@ class WidgetInfoModel(sc.AbstractManipulatorModel):
 
         prim = self._prim
 
-        if prim.IsA(UsdLux.Light):
+        if prim.GetTypeName() == "Light":
             self.material_name = "I am a Light"
         elif prim.IsA(UsdGeom.Imageable):
             material, relationship = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
