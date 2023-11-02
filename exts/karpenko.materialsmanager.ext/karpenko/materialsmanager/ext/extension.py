@@ -379,6 +379,8 @@ class MaterialManagerExtended(omni.ext.IExt):
         :param parent_prim: The parent prim of the looks folder
         :return: The looks folder if it exists, otherwise None.
         """
+        if not parent_prim:
+            return None
         looks_folder = parent_prim.GetPrimAtPath("Looks")
         return looks_folder if looks_folder else None
 
